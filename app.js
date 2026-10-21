@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=7";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=8";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -88,8 +88,9 @@ $logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
 function renderShell() {
   const tabs = [
     { id: "home", ic: "🏠", label: "Home" },
-    { id: "study", ic: "📚", label: "Study" },
+    { id: "study", ic: "📚", label: "Notes" },
     { id: "tests", ic: "📝", label: "Tests" },
+    ...(!isStaff() ? [{ id: "fees", ic: "💰", label: "Fees" }] : []),
     ...(isStaff() ? [{ id: "manage", ic: "🛠️", label: "Manage" }] : []),
     ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "Users" }] : []),
     { id: "more", ic: "☰", label: "More" },
@@ -104,7 +105,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -180,7 +181,7 @@ async function renderHome() {
       ${qaHTML([
         { go: "tests", ic: "📝", label: "Test दें", bg: "#fde8e8" },
         { go: "study", ic: "📚", label: "Notes पढ़ें", bg: "#e2f4ec" },
-        { go: "study", ic: "⬇️", label: "Material", bg: "#e8effe" },
+        { go: "fees", ic: "💰", label: "मेरी Fees", bg: "#e8effe" },
         { go: "more", ic: "👤", label: "My Profile", bg: "#fdf3d7" },
       ])}
       <div class="card"><h3>📊 मेरी प्रगति</h3>
@@ -710,55 +711,23 @@ async function renderStudy() {
   ]);
   const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
   const chapName = (id) => (chapters || []).find(c => c.id === id)?.name || "";
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
   const isBm = (type, id) => (bms || []).some(b => b.item_type === type && b.item_id === id);
   const isDone = (type, id) => (prog || []).some(p => p.item_type === type && p.item_id === id && p.completed);
-
-  /* ----- Level 1: Class hub ----- */
-  if (!studyClassId) {
-    const { data: allTests } = await sb.from("tests").select("id, class_id, status");
-    const visTests = isStaff() ? (allTests || []) : (allTests || []).filter(t => t.status === "published");
-    const PALETTE = ["#e8f1fe", "#e2f4ec", "#fdeeda", "#efe7fd", "#fde8e8", "#e0f2f1"];
-    $app.innerHTML = `
-      <div class="card"><h3>🎓 मेरी Classes</h3>
-        <p>किसी class में प्रवेश करें — उसके Notes, Tests, Fees सब उसी के अंदर मिलेंगे।</p>
-        <div class="subj-grid">
-        ${myClasses.map((c, i) => `
-          <div class="subj" data-enter="${c.id}" style="cursor:pointer">
-            <div class="sic" style="background:${PALETTE[i % PALETTE.length]}">🎓</div>
-            <div style="flex:1"><div class="st">${esc(c.name)}</div>
-            <div class="ss">${(subjects || []).filter(s => s.class_id === c.id).length} Subjects • ${(notes || []).filter(n => n.class_id === c.id).length + (materials || []).filter(m => m.class_id === c.id).length} Notes/Material • ${visTests.filter(t => t.class_id === c.id).length} Tests</div></div>
-            <span style="font-weight:900; color:var(--blue)">→</span>
-          </div>`).join("") || `<p class="muted">अभी किसी class में प्रवेश नहीं है।</p>`}
-        </div>
-      </div>`;
-    $app.querySelectorAll("[data-enter]").forEach(el => el.onclick = () => { studyClassId = +el.dataset.enter; renderStudy(); });
-    return;
-  }
-
-  /* ----- Level 2: Inside one class ----- */
-  const cls = myClasses.find(c => c.id === studyClassId);
-  const inClass = (x) => x.class_id === studyClassId;
+  if (studyClassId && !myClasses.some(c => c.id === studyClassId)) studyClassId = null;
+  const inClass = (x) => !studyClassId || x.class_id === studyClassId;
   const myNotes = (notes || []).filter(inClass);
   const myMats = (materials || []).filter(inClass);
   const dispMats = matFilter === "pdfs" ? myMats.filter(m => m.file_path)
     : matFilter === "videos" ? myMats.filter(m => m.external_url || m.kind === "video_link")
     : myMats;
-  const [{ data: tests }, { data: myAtt }, { data: myFees }, { data: anns }] = await Promise.all([
-    sb.from("tests").select("*").eq("class_id", studyClassId).order("created_at", { ascending: false }),
-    sb.from("test_attempts").select("*").eq("student_id", me.id).order("started_at", { ascending: false }),
-    profile.role === "student" ? sb.from("fee_records").select("*").eq("student_id", me.id).eq("class_id", studyClassId).order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
-    sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(20),
-  ]);
-  const attemptsOf = (tid) => (myAtt || []).filter(a => a.test_id === tid);
-  const classTests = (tests || []).filter(t => isStaff() || t.status === "published");
-  const classAnns = (anns || []).filter(a => !a.class_id || a.class_id === studyClassId).slice(0, 3);
-  const feeDue = (myFees || []).reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
+  const mySubjs = (subjects || []).filter(s => !studyClassId || s.class_id === studyClassId);
 
   const itemCard = (x, type) => `
     <div class="item">
       <div>
         <div class="t">${type === "material" ? (KIND_ICON[x.kind] || "📄") + " " : "📗 "}${esc(x.title)}</div>
-        <div class="s">${esc(subName(x.subject_id))}${x.chapter_id ? " • " + esc(chapName(x.chapter_id)) : ""}${x.difficulty ? " • " + esc(x.difficulty) : ""}${x.description ? "<br>" + esc(x.description) : ""}</div>
+        <div class="s">${esc(clsName(x.class_id))} • ${esc(subName(x.subject_id))}${x.chapter_id ? " • " + esc(chapName(x.chapter_id)) : ""}${x.difficulty ? " • " + esc(x.difficulty) : ""}${x.description ? "<br>" + esc(x.description) : ""}</div>
         ${type === "note" && x.body ? `<div class="s" id="body-${x.id}" style="white-space:pre-wrap"></div>` : ""}
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
@@ -774,51 +743,29 @@ async function renderStudy() {
     </div>`;
 
   $app.innerHTML = `
-    <button class="light small" id="backClasses">← सभी Classes</button>
-    <div class="card" style="margin-top:10px; background:linear-gradient(120deg,#eaf3ff,#d8e9fd); border-color:#bcd6f9">
-      <h3 style="margin:0">🎓 ${esc(cls?.name || "Class")}</h3>
-      <p style="margin:4px 0 0">इस class की सारी चीज़ें — Notes, Material, Tests${profile.role === "student" ? ", Fees" : ""} — इसी जगह हैं।</p>
+    <div class="card"><h3>🎓 Class चुनें</h3>
+      <div class="row">
+        <button class="${!studyClassId ? "" : "light"}" data-cls="">सभी Classes</button>
+        ${myClasses.map(c => `<button class="${c.id === studyClassId ? "" : "light"}" data-cls="${c.id}">${esc(c.name)}</button>`).join("")}
+      </div>
+      <p class="muted" style="margin-bottom:0">Notes और Material class के हिसाब से अलग-अलग दिखते हैं।</p>
     </div>
-    ${classAnns.length ? `<div class="card"><h3>📢 इस Class की सूचनाएँ</h3>
-      ${classAnns.map(a => `<div class="item"><div><div class="t" style="font-size:14px">${a.is_pinned ? "📌 " : ""}${esc(a.title)}</div><div class="s">${esc(a.body || "")}</div></div></div>`).join("")}</div>` : ""}
     <div class="card"><h3>📚 Subjects</h3>
-      <div class="subj-grid">${(subjects || []).filter(s => s.class_id === studyClassId).map(s => {
+      <div class="subj-grid">${mySubjs.map(s => {
         const st = subjStyle(s.name);
         return `<div class="subj"><div class="sic" style="background:${st.c}">${st.i}</div>
           <div style="flex:1"><div class="st">${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</div>
-          <div class="ss">${(chapters || []).filter(c => c.subject_id === s.id).length} Chapters • ${myNotes.filter(n => n.subject_id === s.id).length + myMats.filter(m => m.subject_id === s.id).length} items</div></div></div>`;
+          <div class="ss">${esc(clsName(s.class_id))} • ${(chapters || []).filter(c => c.subject_id === s.id).length} Chapters • ${myNotes.filter(n => n.subject_id === s.id).length + myMats.filter(m => m.subject_id === s.id).length} items</div></div></div>`;
       }).join("") || `<p class="muted">इस class में अभी subjects नहीं हैं।</p>`}</div>
     </div>
-    <div class="card"><h3>📝 इस Class के Tests (${classTests.length})</h3>
-      ${classTests.map(t => { const mine = attemptsOf(t.id); const submitted = mine.filter(a => a.status !== "in_progress"); const live = mine.find(a => a.status === "in_progress"); return `
-        <div class="item"><div>
-          <div class="t">${esc(t.title)}</div>
-          <div class="s">${esc(subName(t.subject_id))} • ⏱ ${t.duration_minutes} मिनट • ${t.total_marks} अंक${+t.negative_marking ? ` • ग़लत पर −${t.negative_marking}` : ""}${submitted.length ? `<br>मेरा score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div></div>
-          <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
-            <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
-            ${isStaff() ? `<button class="light small" data-gotests="1">Tests में खोलें</button>`
-              : t.status === "published" ? (live
-                ? `<button class="gold small" data-tstart="${t.id}">▶ जारी रखें</button>`
-                : submitted.length
-                  ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">Result देखें</button>`
-                  : `<button class="gold small" data-tstart="${t.id}">▶ Test शुरू करें</button>`) : ""}
-          </div>
-        </div>`; }).join("") || `<p class="muted">इस class में अभी कोई test नहीं है।</p>`}
-    </div>
-    ${profile.role === "student" ? `
-    <div class="card"><h3>💰 इस Class की मेरी Fees</h3>
-      ${feeDue > 0 ? `<p style="color:var(--bad); font-weight:700">बकाया: ₹${feeDue.toLocaleString("en-IN")}</p>` : ""}
-      ${(myFees || []).map(r => `<div class="item"><div><div class="t" style="font-size:14px">${esc(r.fee_type)} — ${esc(r.period)}</div>
-        <div class="s">₹${r.amount} में से ₹${r.paid_amount} जमा</div></div>
-        <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span></div>`).join("") || `<p class="muted">इस class की कोई fee record नहीं है।</p>`}
-    </div>` : ""}
     ${isStaff() ? `
-    <div class="card"><h3>➕ इसी Class में Note / Material जोड़ें</h3>
+    <div class="card"><h3>➕ Note / Material जोड़ें</h3>
       <label>प्रकार</label>
       <select id="n_kind"><option value="note">📗 Note (लिखा हुआ / PDF)</option><option value="material">📕 Study Material (file / link)</option></select>
       <label>शीर्षक</label><input id="n_title" placeholder="जैसे: प्रकाश संश्लेषण — सारांश">
-      <label>Subject</label><select id="n_subject"><option value="">— कोई नहीं —</option>${(subjects || []).filter(s => s.class_id === studyClassId).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select>
-      <label>Chapter</label><select id="n_chapter"><option value="">— कोई नहीं —</option>${(chapters || []).filter(ch => (subjects || []).some(s => s.id === ch.subject_id && s.class_id === studyClassId)).map(ch => `<option value="${ch.id}">${esc(ch.name)}</option>`).join("")}</select>
+      <label>Class</label><select id="n_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === studyClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+      <label>Subject</label><select id="n_subject"><option value="">— कोई नहीं —</option>${(subjects || []).map(s => `<option value="${s.id}">${esc(s.name)} (${esc(clsName(s.class_id))})</option>`).join("")}</select>
+      <label>Chapter</label><select id="n_chapter"><option value="">— कोई नहीं —</option>${(chapters || []).map(ch => `<option value="${ch.id}">${esc(ch.name)}</option>`).join("")}</select>
       <div id="matKindWrap" class="hidden"><label>Material का प्रकार</label>
         <select id="n_matkind">${Object.keys(KIND_ICON).map(k => `<option value="${k}">${k}</option>`).join("")}</select></div>
       <label>Note का text (सिर्फ़ Note के लिए, खाली छोड़ सकते हैं)</label><textarea id="n_body" placeholder="Note यहाँ लिखें…"></textarea>
@@ -841,16 +788,7 @@ async function renderStudy() {
 
   const noteById = (id) => (notes || []).find(n => n.id === id);
   const matById = (id) => (materials || []).find(m => m.id === id);
-  document.getElementById("backClasses").onclick = () => { studyClassId = null; renderStudy(); };
-  $app.querySelectorAll("[data-tstart]").forEach(b => b.onclick = () => {
-    const t = classTests.find(x => x.id === +b.dataset.tstart);
-    startTest(t, attemptsOf(t.id));
-  });
-  $app.querySelectorAll("[data-tresult]").forEach(b => b.onclick = () => {
-    const [aid, tid] = b.dataset.tresult.split(":");
-    showResult(+aid, classTests.find(x => x.id === +tid));
-  });
-  $app.querySelectorAll("[data-gotests]").forEach(b => b.onclick = () => { tab = "tests"; renderShell(); });
+  $app.querySelectorAll("[data-cls]").forEach(b => b.onclick = () => { studyClassId = b.dataset.cls ? +b.dataset.cls : null; renderStudy(); });
   $app.querySelectorAll("[data-mf]").forEach(b => b.onclick = () => { matFilter = b.dataset.mf; renderStudy(); });
   $app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
     const [type, id] = b.dataset.open.split(":");
@@ -883,7 +821,7 @@ async function renderStudy() {
       const err = document.getElementById("n_err"); err.textContent = "";
       const kind = kindSel.value;
       const title = document.getElementById("n_title").value.trim();
-      const class_id = studyClassId;
+      const class_id = +document.getElementById("n_class").value;
       const subject_id = document.getElementById("n_subject").value ? +document.getElementById("n_subject").value : null;
       const chapter_id = document.getElementById("n_chapter").value ? +document.getElementById("n_chapter").value : null;
       const status = document.getElementById("n_status").value;
@@ -910,6 +848,41 @@ async function renderStudy() {
       } catch (e) { err.textContent = e.message; }
     };
   }
+}
+
+/* ---------------- Fees (student / parent section) ---------------- */
+async function renderFeesStudent() {
+  $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
+  const { data: records } = await sb.from("fee_records").select("*").order("created_at", { ascending: false });
+  const recs = records || [];
+  let nameOf = () => "";
+  if (profile.role === "parent" && recs.length) {
+    const ids = [...new Set(recs.map(r => r.student_id))];
+    const { data: kids } = await sb.from("profiles").select("id,full_name").in("id", ids);
+    nameOf = (id) => (kids || []).find(k => k.id === id)?.full_name || "Student";
+  }
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "Class";
+  const totalDue = recs.reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
+  const totalPaid = recs.reduce((s, r) => s + +r.paid_amount, 0);
+  const byClass = {};
+  recs.forEach(r => { (byClass[r.class_id || 0] = byClass[r.class_id || 0] || []).push(r); });
+
+  $app.innerHTML = `
+    <div class="card"><h3>💰 ${profile.role === "parent" ? "बच्चों की Fees" : "मेरी Fees"}</h3>
+      <div class="stats">
+        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">कुल जमा</div></div>
+        <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n">₹${totalDue.toLocaleString("en-IN")}</div><div class="l">कुल बकाया</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">🧾</div><div class="n">${recs.length}</div><div class="l">Records</div></div>
+      </div>
+      ${totalDue > 0 ? `<p style="color:var(--bad); font-weight:700">⚠️ ₹${totalDue.toLocaleString("en-IN")} बकाया है — कृपया academy में जमा करें।</p>` : `<p style="font-weight:700; color:var(--ok)">कोई बकाया नहीं 🎉</p>`}
+    </div>
+    ${Object.keys(byClass).length ? Object.entries(byClass).map(([cid, list]) => `
+      <div class="card"><h3>🎓 ${esc(clsName(+cid))}</h3>
+        ${list.map(r => `<div class="item"><div>
+          <div class="t" style="font-size:14px">${esc(r.fee_type)} — ${esc(r.period)}${profile.role === "parent" ? ` • ${esc(nameOf(r.student_id))}` : ""}</div>
+          <div class="s">₹${r.amount} में से ₹${r.paid_amount} जमा${r.due_date ? ` • आखिरी तारीख़: ${esc(r.due_date)}` : ""}${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">बकाया ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
+          <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span></div>`).join("")}
+      </div>`).join("") : `<div class="card"><p class="muted">अभी कोई fee record नहीं है। Fee बनते ही यहाँ दिखेगी।</p></div>`}`;
 }
 
 /* ---------------- Test Center ---------------- */
