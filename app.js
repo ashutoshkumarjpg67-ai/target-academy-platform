@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=11";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=12";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -908,15 +908,54 @@ let run = null; // live attempt runtime
 async function renderTests() {
   if (run) { renderRun(); return; }
   $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
-  const [{ data: tests }, { data: myAttempts }, { data: allQ }] = await Promise.all([
+  const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }] = await Promise.all([
     sb.from("tests").select("*").order("created_at", { ascending: false }),
     sb.from("test_attempts").select("*").eq("student_id", me.id).order("started_at", { ascending: false }),
     isStaff() ? sb.from("questions").select("*").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
+    sb.from("subjects").select("*").order("sort_order"),
   ]);
   const attemptsOf = (tid) => (myAttempts || []).filter(a => a.test_id === tid);
   if (tests) tests.sort((a, b) => (a.class_id || 0) - (b.class_id || 0));
-  let lastCls = null;
-  const subjName = (id) => ""; // subject names resolved in forms below
+  const testRow = (t) => {
+    const mine = attemptsOf(t.id);
+    const submitted = mine.filter(a => a.status !== "in_progress");
+    const live = mine.find(a => a.status === "in_progress");
+    return `<div class="item"><div>
+        <div class="t">${esc(t.title)}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} मिनट • ${t.total_marks} अंक${+t.negative_marking ? ` • ग़लत पर −${t.negative_marking}` : ""}${submitted.length ? `<br>मेरा score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
+        <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
+        ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
+            <button class="light small" data-tpreview="${t.id}">👁 देखें</button>
+            <button class="light small" data-tresults="${t.id}">Results</button>
+            <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Draft करें" : "Publish"}</button>
+            <button class="danger small" data-tdel="${t.id}">✕</button></div>`
+          : t.status === "published" ? (live
+            ? `<button class="gold small" data-tstart="${t.id}">▶ जारी रखें</button>`
+            : submitted.length
+              ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">Result देखें</button>`
+              : `<button class="gold small" data-tstart="${t.id}">▶ Test शुरू करें</button>`) : ""}
+      </div></div>`;
+  };
+  const groupedTests = () => {
+    if (!tests || !tests.length) return `<div class="card"><p>अभी कोई test नहीं है।</p></div>`;
+    const classIds = [...new Set(tests.map(t => t.class_id))];
+    return classIds.map(cid => {
+      const inClass = tests.filter(t => t.class_id === cid);
+      const subsHere = (subjects || []).filter(s => s.class_id === cid);
+      const knownIds = new Set(subsHere.map(s => s.id));
+      let html = `<div style="margin:16px 0 4px; font-weight:900; color:var(--navy); font-size:17px">🎓 ${esc((myClasses.find(c => c.id === cid) || {}).name || "Class")}</div>`;
+      subsHere.forEach(s => {
+        const inSub = inClass.filter(t => t.subject_id === s.id);
+        if (!inSub.length) return;
+        html += `<details class="card" open><summary style="font-weight:900; color:var(--navy); font-size:16px; cursor:pointer">📚 ${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""} <span class="muted" style="font-weight:600">(${inSub.length} test${inSub.length > 1 ? "s" : ""})</span></summary>${inSub.map(testRow).join("")}</details>`;
+      });
+      const rest = inClass.filter(t => !t.subject_id || !knownIds.has(t.subject_id));
+      if (rest.length) html += `<details class="card" open><summary style="font-weight:900; color:var(--navy); font-size:16px; cursor:pointer">📚 अन्य Tests <span class="muted" style="font-weight:600">(${rest.length})</span></summary>${rest.map(testRow).join("")}</details>`;
+      return html;
+    }).join("");
+  };
 
   $app.innerHTML = `
     ${isStaff() ? `
@@ -938,30 +977,8 @@ async function renderTests() {
       <p class="muted">Test पहले Draft बनेगा — सूची में Publish दबाकर students के लिए खोलें।</p>
     </details>` : ""}
     <div class="card"><h3>📝 ${isStaff() ? "सभी Tests" : "मेरे Tests"}</h3>
-    ${(tests && tests.length) ? tests.map(t => {
-      const mine = attemptsOf(t.id);
-      const submitted = mine.filter(a => a.status !== "in_progress");
-      const live = mine.find(a => a.status === "in_progress");
-      const head = t.class_id !== lastCls ? (lastCls = t.class_id, `<div style="margin:14px 0 2px; font-weight:900; color:var(--navy)">🎓 ${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "Class")}</div>`) : "";
-      return head + `<div class="item"><div>
-          <div class="t">${esc(t.title)}</div>
-          <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} मिनट • ${t.total_marks} अंक${+t.negative_marking ? ` • ग़लत पर −${t.negative_marking}` : ""}${submitted.length ? `<br>मेरा score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
-        </div>
-        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
-          <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
-          ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
-              <button class="light small" data-tpreview="${t.id}">👁 देखें</button>
-              <button class="light small" data-tresults="${t.id}">Results</button>
-              <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Draft करें" : "Publish"}</button>
-              <button class="danger small" data-tdel="${t.id}">✕</button></div>`
-            : t.status === "published" ? (live
-              ? `<button class="gold small" data-tstart="${t.id}">▶ जारी रखें</button>`
-              : submitted.length
-                ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">Result देखें</button>`
-                : `<button class="gold small" data-tstart="${t.id}">▶ Test शुरू करें</button>`) : ""}
-        </div></div>`;
-    }).join("") : `<p>अभी कोई test नहीं है।</p>`}
-    </div>
+    <p class="muted" style="margin:0">Tests subject के हिसाब से बँटे हैं — subject खोलकर उसके tests देखें।</p></div>
+    ${groupedTests()}
     <div id="tResults"></div>`;
 
   if (isStaff()) {
@@ -983,8 +1000,13 @@ async function renderTests() {
       if (!title) { err.textContent = "Test का नाम लिखें"; return; }
       if (!picked.length) { err.textContent = "कम से कम एक सवाल चुनें"; return; }
       const total = picked.reduce((s, id) => s + (+((allQ || []).find(q => q.id === id) || {}).marks || 1), 0);
+      const pickedQs = picked.map(id => (allQ || []).find(q => q.id === id)).filter(Boolean);
+      const subjIds = [...new Set(pickedQs.map(q => q.subject_id).filter(Boolean))];
+      const chapIds = [...new Set(pickedQs.map(q => q.chapter_id).filter(Boolean))];
       const { data: t, error } = await sb.from("tests").insert({
         teacher_id: me.id, class_id: +classSel.value, title,
+        subject_id: subjIds.length === 1 ? subjIds[0] : null,
+        chapter_id: chapIds.length === 1 ? chapIds[0] : null,
         duration_minutes: +document.getElementById("t_dur").value || 30,
         negative_marking: +document.getElementById("t_neg").value || 0,
         passing_percent: +document.getElementById("t_pass").value || 33,
