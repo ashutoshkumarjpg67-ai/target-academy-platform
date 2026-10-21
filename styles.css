@@ -138,7 +138,7 @@ details.card summary::-webkit-details-marker{display:none}
   max-width:880px; margin:0 auto;
 }
 #tabbar button{
-  flex:1; background:none; color:var(--muted); font-size:11.5px; font-weight:800;
+  flex:1; background:none; color:var(--muted); font-size:11.5px; font-weight:800; white-space:nowrap;
   display:flex; flex-direction:column; align-items:center; gap:2px; padding:8px 2px;
   border-radius:14px; box-shadow:none;
 }

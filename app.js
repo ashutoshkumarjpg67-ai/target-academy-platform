@@ -254,13 +254,14 @@ function renderShell() {
     { id: "home", ic: "🏠", label: "Home" },
     { id: "study", ic: "📚", label: "Notes" },
     { id: "tests", ic: "📝", label: "Tests" },
-    ...(!isStaff() ? [{ id: "fees", ic: "💰", label: "Fees" }] : []),
+    { id: "fees", ic: "💰", label: "Fees" },
     ...(isStaff() ? [{ id: "manage", ic: "🛠️", label: "Manage" }] : []),
     ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "Users" }] : []),
     { id: "more", ic: "☰", label: "More" },
   ];
   document.body.classList.remove("auth-mode");
-  const navHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+  const barIds = ["home", "study", "tests", "fees"];
+  const navHTML = tabs.filter(t => [...barIds, "more"].includes(t.id)).map(t => `<button data-tab="${t.id}" class="${t.id === "more" ? (barIds.includes(tab) ? "" : "active") : (tab === t.id ? "active" : "")}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
   const extraTabs = [
     { id: "doubts", ic: "❓", label: "Doubts" },
     { id: "tutor", ic: "🤖", label: "AI Tutor" },
@@ -280,7 +281,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -466,7 +467,7 @@ async function renderManage() {
       <label>नई Class का नाम</label>
       <div class="row"><input id="newClass" placeholder="जैसे: Class 10"><button class="gold" id="addClassBtn">जोड़ें</button></div>
     </div>
-    <div id="fees"></div>
+    <div class="card"><h3>💰 Fees</h3><p class="muted" style="margin:0 0 10px">Fee अब अपने अलग section में है — नीचे के Fees tab से खोलें।</p><button class="gold" id="goFees" style="width:100%">💰 Fees Section खोलें</button></div>
     <div id="qbank"></div>
     <div class="card">
       <h3>📢 Notice डालें</h3>
@@ -507,11 +508,19 @@ async function renderManage() {
     await notifyUsers((studs || []).map(p => p.id), "announcement", "📢 " + title, body);
     toast("Notice भेज दिया गया 📢"); tab = "home"; renderShell();
   };
+  document.getElementById("goFees").onclick = () => { tab = "fees"; renderShell(); };
   renderQBank(subjects || [], chapters || []);
-  renderFees();
 }
 
 /* ---------------- Fees (staff) ---------------- */
+async function renderFeesPage() {
+  $app.innerHTML = `
+    <div class="card"><h3>💰 Fees</h3>
+      <p class="muted" style="margin:0">Class की fee तय करें, पूरी class के लिए fee बनाएँ और payment दर्ज करें। Fee बनते ही और payment होते ही student को अपने-आप सूचना (app + phone) चली जाती है।</p>
+    </div>
+    <div id="fees"></div>`;
+  renderFees();
+}
 async function renderFees() {
   const host = document.getElementById("fees");
   if (!host) return;
@@ -1585,15 +1594,20 @@ async function renderMore() {
         <div class="s">₹${r.amount} में से ₹${r.paid_amount} जमा${r.due_date ? ` • आखिरी तारीख़: ${esc(r.due_date)}` : ""}</div></div>
         <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span></div>`).join("") || `<p class="muted">अभी कोई fee record नहीं है।</p>`}
     </div>` : ""}
-    <div class="card">
+    <div class="card"><h3>📂 सभी Sections</h3>
+      <div class="qa-grid" style="margin-bottom:4px">
+        <div class="qa" data-nav="fees"><div class="qi" style="background:#fff4cf">💰</div><div class="ql">Fees</div></div>
+        <div class="qa" data-nav="doubts"><div class="qi" style="background:#fdecea">❓</div><div class="ql">Doubts</div></div>
+        <div class="qa" data-nav="tutor"><div class="qi" style="background:#e8f1fe">🤖</div><div class="ql">AI Tutor</div></div>
+        <div class="qa" data-nav="live"><div class="qi" style="background:#fdecea">📺</div><div class="ql">Live Class</div></div>
+        <div class="qa" data-nav="top"><div class="qi" style="background:#fff4cf">🏆</div><div class="ql">Leaderboard</div></div>
+        <div class="qa" data-nav="homework"><div class="qi" style="background:#e2f4ec">📒</div><div class="ql">Homework</div></div>
+        <div class="qa" data-nav="attendance"><div class="qi" style="background:#e2f4ec">✅</div><div class="ql">Attendance</div></div>
+        <div class="qa" data-nav="timetable"><div class="qi" style="background:#e8f1fe">🗓️</div><div class="ql">Timetable</div></div>
+        ${isStaff() ? `<div class="qa" data-nav="manage"><div class="qi" style="background:#e8f1fe">🛠️</div><div class="ql">Manage</div></div>` : ""}
+        ${profile.role === "admin" ? `<div class="qa" data-nav="users"><div class="qi" style="background:#fff4cf">👥</div><div class="ql">Users</div></div>` : ""}
+      </div>
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
-      <div class="menu-item" data-nav="doubts" style="cursor:pointer"><span class="mi">❓</span>Doubts<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="tutor" style="cursor:pointer"><span class="mi">🤖</span>AI Tutor<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="live" style="cursor:pointer"><span class="mi">📺</span>Live Class<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="top" style="cursor:pointer"><span class="mi">🏆</span>Leaderboard<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="homework" style="cursor:pointer"><span class="mi">📒</span>Homework<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="attendance" style="cursor:pointer"><span class="mi">✅</span>Attendance<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="timetable" style="cursor:pointer"><span class="mi">🗓️</span>Timetable<span class="arr">›</span></div>
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
       <div class="menu-item"><span class="mi">📱</span>Platform<span class="arr">Target Academy v2</span></div>
