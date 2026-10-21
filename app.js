@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=13";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=14";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -922,12 +922,13 @@ async function renderTests() {
     const live = mine.find(a => a.status === "in_progress");
     return `<div class="item"><div>
         <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} मिनट • ${t.total_marks} अंक${+t.negative_marking ? ` • ग़लत पर −${t.negative_marking}` : ""}${submitted.length ? `<br>मेरा score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} मिनट • ${t.total_marks} अंक${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${+t.negative_marking ? ` • ग़लत पर −${t.negative_marking}` : ""}${submitted.length ? `<br>मेरा score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
         <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
         ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
             <button class="light small" data-tpreview="${t.id}">👁 देखें</button>
+            <button class="light small" data-tinst="${t.id}:${t.instant_feedback ? 1 : 0}" title="Practice Mode चालू/बंद करें">⚡ ${t.instant_feedback ? "ON" : "OFF"}</button>
             <button class="light small" data-tresults="${t.id}">Results</button>
             <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Draft करें" : "Publish"}</button>
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
@@ -970,6 +971,7 @@ async function renderTests() {
         <div><label>Pass %</label><input id="t_pass" type="number" value="33" min="0" max="100"></div>
         <div><label>कोशिशें (attempts)</label><input id="t_max" type="number" value="1" min="1"></div>
       </div>
+      <label class="checkrow"><input type="checkbox" id="t_instant" checked><span><b>⚡ Practice Mode</b> — option चुनते ही student को सही/ग़लत + explanation दिखेगा (पहला click ही उत्तर माना जाएगा, बाद में बदल नहीं सकेगा)</span></label>
       <label>सवाल चुनें (Question Bank से)</label>
       <div id="t_picker" style="max-height:260px; overflow:auto"></div>
       <div class="error" id="t_err"></div>
@@ -1011,6 +1013,7 @@ async function renderTests() {
         negative_marking: +document.getElementById("t_neg").value || 0,
         passing_percent: +document.getElementById("t_pass").value || 33,
         max_attempts: +document.getElementById("t_max").value || 1,
+        instant_feedback: document.getElementById("t_instant").checked,
         total_marks: total, status: "draft",
       }).select().single();
       if (error) { err.textContent = error.message; return; }
@@ -1032,6 +1035,13 @@ async function renderTests() {
     });
     $app.querySelectorAll("[data-tresults]").forEach(b => b.onclick = () => renderTestResults(+b.dataset.tresults));
     $app.querySelectorAll("[data-tpreview]").forEach(b => b.onclick = () => previewTest((tests || []).find(x => x.id === +b.dataset.tpreview)));
+    $app.querySelectorAll("[data-tinst]").forEach(b => b.onclick = async () => {
+      const [id, on] = b.dataset.tinst.split(":");
+      const { error } = await sb.from("tests").update({ instant_feedback: on !== "1" }).eq("id", +id);
+      if (error) return toast("Error: " + error.message);
+      toast(on === "1" ? "⚡ Practice Mode बंद — अब जवाब submit के बाद मिलेगा" : "⚡ Practice Mode चालू — option चुनते ही जवाब मिलेगा");
+      renderTests();
+    });
   }
   $app.querySelectorAll("[data-tstart]").forEach(b => b.onclick = () => {
     const t = (tests || []).find(x => x.id === +b.dataset.tstart);
@@ -1112,9 +1122,17 @@ async function startTest(test, myAttempts) {
     test, attempt, qs: qs || [], idx: 0,
     answers: new Map((saved || []).map(r => [r.question_id, r.answer])),
     review: new Set((saved || []).filter(r => r.marked_for_review).map(r => r.question_id)),
+    feedback: new Map(),
     endsAt: new Date(attempt.started_at).getTime() + test.duration_minutes * 60000,
     timer: null,
   };
+  if (test.instant_feedback) {
+    const answeredMcq = run.qs.filter(x => (x.qtype === "mcq_single" || x.qtype === "true_false") && run.answers.has(x.question_id) && run.answers.get(x.question_id) !== null);
+    await Promise.all(answeredMcq.map(async x => {
+      const { data } = await sb.rpc("reveal_answer", { p_attempt_id: attempt.id, p_question_id: x.question_id });
+      if (data && data[0]) run.feedback.set(x.question_id, data[0]);
+    }));
+  }
   renderRun();
   run.timer = setInterval(tickTimer, 500); tickTimer();
 }
@@ -1144,9 +1162,18 @@ function renderRun() {
   const answered = qs.filter(x => run.answers.has(x.question_id) && run.answers.get(x.question_id) !== null).length;
   const opts = Array.isArray(q.options) ? q.options : [];
   let body = "";
+  const fb = (test.instant_feedback && run.feedback) ? run.feedback.get(q.question_id) : null;
   if (q.qtype === "mcq_single" || q.qtype === "true_false") {
     const cur = (run.answers.get(q.question_id) || [])[0];
-    body = opts.map(o => `<button class="option ${cur === o.key ? "sel" : ""}" data-opt="${esc(o.key)}"><span class="k">${esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : o.key)}</span>${esc(o.text)}</button>`).join("");
+    const keyLabel = (o) => esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : o.key);
+    if (fb) {
+      const rightKey = Array.isArray(fb.correct_answer) ? String(fb.correct_answer[0]) : null;
+      body = opts.map(o => `<button class="option ${String(o.key) === rightKey ? "right" : cur === o.key ? "wrong" : ""}" disabled><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("")
+        + `<div class="expl-box">${fb.is_correct ? "✅ <b>सही उत्तर!</b> बहुत बढ़िया 🎉" : "❌ <b>ग़लत उत्तर</b> — सही उत्तर ऊपर हरे रंग में दिखा है।"}${fb.explanation ? `<br>💡 <b>Explanation:</b> ${esc(fb.explanation)}` : ""}</div>
+        <p class="muted" style="margin-top:6px">🔒 यह उत्तर lock हो गया है — अब अगले सवाल पर जाएँ।</p>`;
+    } else {
+      body = opts.map(o => `<button class="option ${cur === o.key ? "sel" : ""}" data-opt="${esc(o.key)}"><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("");
+    }
   } else if (q.qtype === "fill_blank" || q.qtype === "short" || q.qtype === "descriptive") {
     const cur = (run.answers.get(q.question_id) || [])[0] || "";
     body = `<input id="ansText" placeholder="अपना उत्तर लिखें…" value="${esc(cur)}">
@@ -1163,11 +1190,13 @@ function renderRun() {
       </div>
       <div class="prog" style="margin:12px 0 4px"><div style="width:${qs.length ? (answered / qs.length) * 100 : 0}%"></div></div>
       <p class="muted">सवाल ${run.idx + 1} / ${qs.length} • उत्तर दिए: ${answered} • यह सवाल ${q.marks} अंक का</p>
-      <p class="muted" style="margin-top:2px">एक उत्तर चुनें — वह सिर्फ़ save होगा। ✅ सही / ❌ ग़लत और 💡 explanation, submit के बाद result में मिलेगा।</p>
+      ${test.instant_feedback
+        ? `<p class="muted" style="margin-top:2px">⚡ <b>Practice Mode:</b> option चुनते ही ✅ सही / ❌ ग़लत + explanation दिखेगा। पहला click ही आपका उत्तर होगा — बाद में बदलेगा नहीं।</p>`
+        : `<p class="muted" style="margin-top:2px">एक उत्तर चुनें — वह सिर्फ़ save होगा। ✅ सही / ❌ ग़लत और 💡 explanation, submit के बाद result में मिलेगा।</p>`}
       <div style="font-size:17px; font-weight:700; line-height:1.5; margin:12px 0">${esc(q.question_text)}</div>
       ${body}
       <div class="row" style="margin-top:14px">
-        <button class="light" id="clearQ">🧹 उत्तर हटाएँ</button>
+        ${fb ? "" : `<button class="light" id="clearQ">🧹 उत्तर हटाएँ</button>`}
         <button class="${run.review.has(q.question_id) ? "gold" : "light"}" id="revQ">🔖 Review के लिए रखें</button>
       </div>
       <button class="gold" id="submitTest" style="width:100%; margin-top:12px">✅ Test Submit करें</button>
@@ -1181,13 +1210,23 @@ function renderRun() {
       <button class="gold" id="nextQ" ${run.idx === qs.length - 1 ? "disabled" : ""}>अगला सवाल →</button>
     </div>`;
   $app.querySelectorAll("[data-opt]").forEach(b => b.onclick = async () => {
+    if (run.test.instant_feedback) {
+      if (run.answers.has(q.question_id) && run.answers.get(q.question_id) !== null) return; // first click locks
+      run.answers.set(q.question_id, [b.dataset.opt]);
+      await saveAnswer(q.question_id);
+      const { data } = await sb.rpc("reveal_answer", { p_attempt_id: run.attempt.id, p_question_id: q.question_id });
+      if (data && data[0]) run.feedback.set(q.question_id, data[0]);
+      renderRun();
+      return;
+    }
     run.answers.set(q.question_id, [b.dataset.opt]); await saveAnswer(q.question_id); renderRun();
   });
   const txt = document.getElementById("ansText");
   if (txt) txt.onchange = async () => { run.answers.set(q.question_id, [txt.value]); await saveAnswer(q.question_id); renderRun(); };
   document.getElementById("prevQ").onclick = () => { run.idx--; renderRun(); };
   document.getElementById("nextQ").onclick = () => { run.idx++; renderRun(); };
-  document.getElementById("clearQ").onclick = async () => {
+  const clearBtn = document.getElementById("clearQ");
+  if (clearBtn) clearBtn.onclick = async () => {
     run.answers.delete(q.question_id); await saveAnswer(q.question_id); renderRun();
   };
   document.getElementById("revQ").onclick = async () => {
