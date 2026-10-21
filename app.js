@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=14";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=15";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -171,6 +171,11 @@ async function renderHome() {
     const syllabusPct = totalItems ? Math.round((doneItems / totalItems) * 100) : 0;
     const testsGiven = (attempts || []).length;
     const accuracy = testsGiven ? Math.round((attempts || []).reduce((s, a) => s + (+a.percent || 0), 0) / testsGiven) : 0;
+    // मेरा लक्ष्य algorithm: tests से 60% (आधा = कितनी बार test दिया, आधा = औसत score) + पढ़ाई से 40%।
+    // Notes/materials ही न हों तो पूरा % tests से बनता है।
+    const activityPct = Math.min(100, testsGiven * 20);
+    const testPct = Math.round(0.5 * activityPct + 0.5 * accuracy);
+    const goalPct = totalItems ? Math.round(0.6 * testPct + 0.4 * syllabusPct) : testPct;
     const quotes = ["अनुशासन आज, सफलता कल। मेहनत कभी बेकार नहीं जाती।", "छोटे-छोटे कदम रोज़ — बड़ी मंज़िल एक दिन।", "आज का अभ्यास, कल का परिणाम।"];
     const quote = quotes[new Date().getDate() % quotes.length];
 
@@ -179,8 +184,10 @@ async function renderHome() {
       <div class="goal">
         <h2>मेरा लक्ष्य 🎯</h2>
         <div class="sub">पढ़ें • अभ्यास करें • सफल हों</div>
-        <div class="prog"><div style="width:${syllabusPct}%"></div></div>
-        <div class="pct">${syllabusPct}% Syllabus पूरा • ${doneItems}/${totalItems} items पढ़े</div>
+        <div class="prog"><div style="width:${goalPct}%"></div></div>
+        <div class="pct">${goalPct}% लक्ष्य पूरा 🎯</div>
+        <div class="pct" style="font-weight:600; opacity:.85">📝 Tests: ${testsGiven} दिए • औसत Score ${accuracy}% &nbsp;•&nbsp; 📚 Notes: ${totalItems ? `${doneItems}/${totalItems} पढ़े` : "अभी नहीं आए"}</div>
+        <div class="pct" style="font-weight:600; opacity:.85">${testsGiven ? "और tests दें, score सुधारें — % और बढ़ेगा 📈" : "पहला test देकर शुरुआत करें — % बढ़ना शुरू होगा 📈"}</div>
         <span class="quote">“${quote}”</span>
         <svg class="mount" viewBox="0 0 200 90" aria-hidden="true"><circle cx="168" cy="16" r="10" fill="#ffd23e"/><path d="M0 90 L55 34 L86 62 L118 18 L150 52 L200 90 Z" fill="#17457f" opacity=".28"/><path d="M62 90 L118 18 L172 90 Z" fill="#0e2f5e" opacity=".5"/><path d="M118 18 L128 30 L118 36 L107 29 Z" fill="#fff"/><rect x="117" y="2" width="2.4" height="17" fill="#8a6400"/><path d="M119.5 2 L133 6 L119.5 10 Z" fill="#d64541"/></svg>
         <div style="margin-top:12px"><button class="small" data-go="study">पढ़ाई जारी रखें →</button></div>
