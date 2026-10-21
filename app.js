@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=8";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=9";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -97,15 +97,22 @@ function renderShell() {
   ];
   document.body.classList.remove("auth-mode");
   const navHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+  const extraTabs = [
+    { id: "homework", ic: "📒", label: "Homework" },
+    { id: "attendance", ic: "✅", label: "Attendance" },
+    { id: "timetable", ic: "🗓️", label: "Timetable" },
+  ];
+  const sideTabs = [...tabs.slice(0, -1), ...extraTabs, tabs[tabs.length - 1]];
+  const sideHTML = sideTabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
   $tabbar.innerHTML = navHTML;
   $tabbar.classList.remove("hidden");
   const $sidenav = document.getElementById("sidenav");
   if ($sidenav) {
-    $sidenav.innerHTML = navHTML;
+    $sidenav.innerHTML = sideHTML;
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -590,6 +597,7 @@ async function renderUsers() {
             ${myClasses.filter(c => !enrOf(u.id).includes(c.id)).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
           </select>` : ""}
           <button class="light small" data-edit="${u.id}">✏️ Edit</button>
+          ${u.id !== me.id ? `<button class="danger small" data-deluser="${u.id}" data-delname="${esc(u.full_name)}">🗑 Delete</button>` : ""}
         </div>
       </div>`).join("")}
   </div>`;
@@ -604,6 +612,14 @@ async function renderUsers() {
     const { error } = await sb.from("enrollments").insert({ user_id: sel.dataset.enroll, class_id: +sel.value });
     if (error) return toast("Error: " + error.message);
     toast("Student class में जुड़ गया 🎓"); renderUsers();
+  });
+  $app.querySelectorAll("[data-deluser]").forEach(b => b.onclick = async () => {
+    const name = b.dataset.delname;
+    if (!confirm(`"${name}" को हटाएँ? उसकी fees, results, attendance, submissions — सारा data हट जाएगा और वह फिर login नहीं कर पाएगा।`)) return;
+    if (!confirm("पक्का? यह वापस नहीं होगा।")) return;
+    const { error } = await sb.from("profiles").delete().eq("id", b.dataset.deluser);
+    if (error) return toast("Error: " + error.message);
+    toast("User हटा दिया गया 🗑"); renderUsers();
   });
   $app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     document.getElementById("edit-" + b.dataset.edit).classList.toggle("hidden");
@@ -1222,13 +1238,295 @@ async function renderMore() {
     </div>` : ""}
     <div class="card">
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
+      <div class="menu-item" data-nav="homework" style="cursor:pointer"><span class="mi">📒</span>Homework<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="attendance" style="cursor:pointer"><span class="mi">✅</span>Attendance<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="timetable" style="cursor:pointer"><span class="mi">🗓️</span>Timetable<span class="arr">›</span></div>
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
       <div class="menu-item"><span class="mi">📱</span>Platform<span class="arr">Target Academy v2</span></div>
     </div>
     <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 Logout करें</button>`;
+  $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
 }
 
 /* ---------------- Start ---------------- */
 sb.auth.onAuthStateChange(() => { /* boot handles routing */ });
 boot();
+
+/* ---------------- Homework ---------------- */
+let hwClassId = null, hwOpenId = null, hwSubmitId = null;
+async function renderHomework() {
+  $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
+  const [{ data: assigns }, { data: subs }, { data: subjects }] = await Promise.all([
+    sb.from("assignments").select("*").order("created_at", { ascending: false }),
+    sb.from("submissions").select("*"),
+    sb.from("subjects").select("*"),
+  ]);
+  const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
+  const list = (assigns || []).filter(a => !hwClassId || a.class_id === hwClassId);
+  const mySub = (aid) => (subs || []).find(s => s.assignment_id === aid && s.student_id === me.id);
+  const chips = `<div class="card"><h3>🎓 Class चुनें</h3><div class="row">
+    <button class="${!hwClassId ? "" : "light"}" data-hwcls="">सभी Classes</button>
+    ${myClasses.map(c => `<button class="${c.id === hwClassId ? "" : "light"}" data-hwcls="${c.id}">${esc(c.name)}</button>`).join("")}</div></div>`;
+
+  let staffForm = "";
+  if (isStaff()) {
+    staffForm = `<div class="card"><h3>➕ नया Homework दें</h3>
+      <label>शीर्षक</label><input id="hw_title" placeholder="जैसे: Chapter 5 के प्रश्न 1–10">
+      <div class="row">
+        <div><label>Class</label><select id="hw_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === hwClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+        <div><label>Subject</label><select id="hw_subject"><option value="">— कोई नहीं —</option>${(subjects || []).map(s => `<option value="${s.id}">${esc(s.name)} (${esc(clsName(s.class_id))})</option>`).join("")}</select></div>
+      </div>
+      <label>निर्देश</label><textarea id="hw_ins" placeholder="क्या करना है, साफ़ लिखें…"></textarea>
+      <div class="row">
+        <div><label>जमा करने की आखिरी तारीख़</label><input id="hw_due" type="date"></div>
+        <div><label>पूर्णांक (अंक)</label><input id="hw_marks" type="number" placeholder="जैसे 10"></div>
+      </div>
+      <div class="error" id="hw_err"></div>
+      <button class="gold" id="hw_add" style="width:100%">Homework भेजें</button></div>`;
+  }
+
+  const cards = list.map(a => {
+    const mine = !isStaff() ? mySub(a.id) : null;
+    const subCount = (subs || []).filter(s => s.assignment_id === a.id).length;
+    const overdue = a.due_at && new Date(a.due_at) < new Date();
+    return `<div class="card">
+      <div style="display:flex; justify-content:space-between; gap:10px">
+        <h3 style="margin:0; font-size:16px">📒 ${esc(a.title)}</h3>
+        ${a.max_marks ? `<span class="pill gold">${a.max_marks} अंक</span>` : ""}
+      </div>
+      <p class="muted" style="margin:6px 0">${esc(clsName(a.class_id))}${a.subject_id ? " • " + esc(subName(a.subject_id)) : ""}${a.due_at ? ` • आखिरी तारीख़: <b style="color:${overdue ? "var(--bad)" : "inherit"}">${new Date(a.due_at).toLocaleDateString("hi-IN")}</b>` : ""}</p>
+      ${a.instructions ? `<p style="white-space:pre-wrap; margin:6px 0">${esc(a.instructions)}</p>` : ""}
+      ${isStaff() ? `<p class="muted">जमा किए: <b>${subCount}</b> students</p>
+        <button class="light small" data-hwopen="${a.id}">${hwOpenId === a.id ? "Submissions छिपाएँ" : "Submissions देखें"}</button>
+        <button class="danger small" data-hwdel="${a.id}">✕ हटाएँ</button>
+        ${hwOpenId === a.id ? `<div style="margin-top:10px">${(subs || []).filter(s => s.assignment_id === a.id).map(s => `
+          <div class="item"><div style="flex:1"><div class="t" style="font-size:14px" data-subname="${s.student_id}">Student</div>
+            <div class="s">${new Date(s.submitted_at).toLocaleString("hi-IN")}${s.body ? `<br>${esc(s.body)}` : ""}</div>
+            ${s.file_path ? `<button class="small light" data-hwfile="${esc(s.file_path)}">📎 File खोलें</button>` : ""}
+            <div class="row" style="margin-top:6px">
+              <div><label>अंक</label><input type="number" id="gm-${s.id}" value="${s.marks ?? ""}" style="width:90px"></div>
+              <div style="flex:2"><label>Feedback</label><input id="gf-${s.id}" value="${esc(s.feedback || "")}"></div>
+              <div style="flex:0 0 auto"><button class="small gold" data-grade="${s.id}">Save</button></div>
+            </div></div>
+            <span class="pill ${s.status === "reviewed" ? "green" : "gold"}">${esc(s.status)}</span></div>`).join("") || `<p class="muted">अभी किसी ने जमा नहीं किया।</p>`}</div>` : ""}`
+      : mine ? `<p>✅ <b>जमा किया</b> — ${new Date(mine.submitted_at).toLocaleString("hi-IN")}
+          ${mine.status === "reviewed" ? `<br>🏅 अंक: <b>${mine.marks ?? "—"}${a.max_marks ? " / " + a.max_marks : ""}</b>${mine.feedback ? `<br>💬 ${esc(mine.feedback)}` : ""}` : `<br><span class="muted">Teacher की जाँच बाकी है</span>`}</p>
+          ${mine.file_path ? `<button class="small light" data-hwfile="${esc(mine.file_path)}">📎 मेरी File</button>` : ""}
+          ${a.allow_resubmit || mine.status !== "reviewed" ? `<button class="small" data-hwsub="${a.id}">फिर से जमा करें</button>` : ""}`
+      : `<p style="color:var(--bad); font-weight:700">⏳ अभी जमा नहीं किया</p>
+          <button class="gold small" data-hwsub="${a.id}">📤 Homework जमा करें</button>`}
+      ${hwSubmitId === a.id && !isStaff() ? `<div style="margin-top:10px">
+          <label>उत्तर लिखें</label><textarea id="sub_body" placeholder="अपना homework यहाँ लिखें…">${mine ? esc(mine.body || "") : ""}</textarea>
+          <label>फ़ोटो / File (ऐच्छिक)</label><input id="sub_file" type="file">
+          <div class="error" id="sub_err"></div>
+          <button class="gold" id="sub_send" style="width:100%">जमा करें</button></div>` : ""}
+    </div>`;
+  }).join("");
+
+  $app.innerHTML = chips + staffForm + (cards || `<div class="card"><p class="muted">इस class में अभी कोई homework नहीं है।</p></div>`);
+
+  $app.querySelectorAll("[data-hwcls]").forEach(b => b.onclick = () => { hwClassId = b.dataset.hwcls ? +b.dataset.hwcls : null; renderHomework(); });
+  if (isStaff()) {
+    document.getElementById("hw_add").onclick = async () => {
+      const err = document.getElementById("hw_err"); err.textContent = "";
+      const title = document.getElementById("hw_title").value.trim();
+      if (!title) { err.textContent = "शीर्षक लिखें"; return; }
+      const due = document.getElementById("hw_due").value;
+      const { error } = await sb.from("assignments").insert({
+        teacher_id: me.id, title, class_id: +document.getElementById("hw_class").value,
+        subject_id: document.getElementById("hw_subject").value ? +document.getElementById("hw_subject").value : null,
+        instructions: document.getElementById("hw_ins").value.trim() || null,
+        due_at: due ? new Date(due + "T23:59:00").toISOString() : null,
+        max_marks: document.getElementById("hw_marks").value ? +document.getElementById("hw_marks").value : null,
+        status: "published" });
+      if (error) { err.textContent = error.message; return; }
+      toast("Homework भेज दिया 📒"); renderHomework();
+    };
+    $app.querySelectorAll("[data-hwdel]").forEach(b => b.onclick = async () => {
+      if (!confirm("यह homework और उसकी सारी submissions हट जाएँगी। पक्का?")) return;
+      const { error } = await sb.from("assignments").delete().eq("id", +b.dataset.hwdel);
+      if (error) return toast("Error: " + error.message);
+      renderHomework();
+    });
+    $app.querySelectorAll("[data-hwopen]").forEach(b => b.onclick = async () => {
+      hwOpenId = hwOpenId === +b.dataset.hwopen ? null : +b.dataset.hwopen;
+      await renderHomework();
+      if (hwOpenId) {
+        const ids = [...new Set([...$app.querySelectorAll("[data-subname]")].map(el => el.dataset.subname))];
+        if (ids.length) {
+          const { data: names } = await sb.from("profiles").select("id,full_name").in("id", ids);
+          $app.querySelectorAll("[data-subname]").forEach(el => el.textContent = (names || []).find(n => n.id === el.dataset.subname)?.full_name || "Student");
+        }
+      }
+    });
+    $app.querySelectorAll("[data-grade]").forEach(b => b.onclick = async () => {
+      const sid = +b.dataset.grade;
+      const { error } = await sb.from("submissions").update({
+        marks: document.getElementById("gm-" + sid).value ? +document.getElementById("gm-" + sid).value : null,
+        feedback: document.getElementById("gf-" + sid).value.trim() || null,
+        status: "reviewed" }).eq("id", sid);
+      if (error) return toast("Error: " + error.message);
+      toast("अंक दे दिए 🏅"); renderHomework();
+    });
+  } else {
+    $app.querySelectorAll("[data-hwsub]").forEach(b => b.onclick = () => { hwSubmitId = hwSubmitId === +b.dataset.hwsub ? null : +b.dataset.hwsub; renderHomework(); });
+    const send = document.getElementById("sub_send");
+    if (send) send.onclick = async () => {
+      const err = document.getElementById("sub_err"); err.textContent = "";
+      const a = list.find(x => x.id === hwSubmitId);
+      try {
+        let file_path = mySub(a.id)?.file_path || null;
+        const f = document.getElementById("sub_file").files[0];
+        if (f) {
+          const ext = (f.name.split(".").pop() || "bin").toLowerCase();
+          file_path = `${me.id}/hw-${a.id}-${Date.now()}.${ext}`;
+          const { error: ue } = await sb.storage.from("avatars").upload(file_path, f, { upsert: true });
+          if (ue) throw ue;
+        }
+        const { error } = await sb.from("submissions").upsert({
+          assignment_id: a.id, student_id: me.id,
+          body: document.getElementById("sub_body").value.trim() || null,
+          file_path, status: "submitted", submitted_at: new Date().toISOString(),
+        }, { onConflict: "assignment_id,student_id" });
+        if (error) throw error;
+        hwSubmitId = null; toast("Homework जमा हो गया ✅"); renderHomework();
+      } catch (e) { err.textContent = e.message; }
+    };
+  }
+  $app.querySelectorAll("[data-hwfile]").forEach(b => b.onclick = () => openStoredFile("avatars", b.dataset.hwfile));
+}
+
+/* ---------------- Attendance ---------------- */
+let attClassId = null, attDate = null, attMarks = {};
+async function renderAttendance() {
+  $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!attDate) attDate = today;
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
+
+  if (isStaff()) {
+    if (!attClassId && myClasses.length) attClassId = myClasses[0].id;
+    const [{ data: enr }, { data: existing }] = await Promise.all([
+      sb.from("enrollments").select("user_id").eq("class_id", attClassId),
+      sb.from("attendance").select("*").eq("class_id", attClassId).eq("on_date", attDate),
+    ]);
+    const ids = (enr || []).map(e => e.user_id);
+    const { data: studs } = ids.length ? await sb.from("profiles").select("id,full_name").in("id", ids) : { data: [] };
+    (existing || []).forEach(r => attMarks[r.student_id] = r.status);
+    $app.innerHTML = `
+      <div class="card"><h3>✅ हाज़िरी लगाएँ</h3>
+        <div class="row">
+          <div><label>Class</label><select id="att_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === attClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+          <div><label>तारीख़</label><input id="att_date" type="date" value="${attDate}"></div>
+        </div>
+        <p class="muted">हर student के सामने Present / Absent / Leave चुनें, फिर save करें।</p>
+        ${(studs || []).map(s => `<div class="item"><div class="t" style="font-size:14px">${esc(s.full_name)}</div>
+          <div style="display:flex; gap:5px">
+            ${[["present", "P", "var(--ok)"], ["absent", "A", "var(--bad)"], ["leave", "L", "#b8860b"]].map(([v, l, col]) => `
+              <button class="small ${attMarks[s.id] === v ? "" : "light"}" data-att="${s.id}:${v}" style="${attMarks[s.id] === v ? `background:${col}` : ""}">${l}</button>`).join("")}
+          </div></div>`).join("") || `<p class="muted">इस class में कोई student नहीं है।</p>`}
+        <button class="gold" id="att_save" style="width:100%; margin-top:10px">हाज़िरी Save करें</button>
+      </div>`;
+    document.getElementById("att_class").onchange = (e) => { attClassId = +e.target.value; attMarks = {}; renderAttendance(); };
+    document.getElementById("att_date").onchange = (e) => { attDate = e.target.value; attMarks = {}; renderAttendance(); };
+    $app.querySelectorAll("[data-att]").forEach(b => b.onclick = () => {
+      const [sid, v] = b.dataset.att.split(":"); attMarks[sid] = v; renderAttendance();
+    });
+    document.getElementById("att_save").onclick = async () => {
+      const rows = Object.entries(attMarks).map(([sid, st]) => ({ student_id: sid, class_id: attClassId, on_date: attDate, status: st, marked_by: me.id }));
+      if (!rows.length) return toast("पहले हाज़िरी चुनें");
+      const { error } = await sb.from("attendance").upsert(rows, { onConflict: "student_id,on_date" });
+      if (error) return toast("Error: " + error.message);
+      toast(`हाज़िरी save हो गई ✅ (${rows.length} students)`); attMarks = {}; renderAttendance();
+    };
+    return;
+  }
+
+  // Student / parent view
+  const { data: recs } = await sb.from("attendance").select("*").order("on_date", { ascending: false }).limit(60);
+  let nameOf = () => "";
+  if (profile.role === "parent" && (recs || []).length) {
+    const ids = [...new Set(recs.map(r => r.student_id))];
+    const { data: kids } = await sb.from("profiles").select("id,full_name").in("id", ids);
+    nameOf = (id) => (kids || []).find(k => k.id === id)?.full_name || "Student";
+  }
+  const mine = (recs || []);
+  const total = mine.length, present = mine.filter(r => r.status === "present").length;
+  const pct = total ? Math.round((present / total) * 100) : 0;
+  $app.innerHTML = `
+    <div class="card"><h3>✅ ${profile.role === "parent" ? "बच्चों की हाज़िरी" : "मेरी हाज़िरी"}</h3>
+      <div class="stats">
+        <div class="stat"><div class="si" style="background:#e2f4ec">🙋</div><div class="n">${present}</div><div class="l">Present दिन</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">📅</div><div class="n">${total}</div><div class="l">कुल दिन</div></div>
+        <div class="stat"><div class="si" style="background:#fdf3d7">📊</div><div class="n">${pct}%</div><div class="l">उपस्थिति</div></div>
+      </div></div>
+    <div class="card"><h3>ताज़ा हाज़िरी</h3>
+      ${mine.map(r => `<div class="item"><div><div class="t" style="font-size:14px">${new Date(r.on_date + "T00:00:00").toLocaleDateString("hi-IN", { weekday: "short", day: "numeric", month: "short" })}</div>
+        <div class="s">${esc(clsName(r.class_id))}${profile.role === "parent" ? " • " + esc(nameOf(r.student_id)) : ""}</div></div>
+        <span class="pill ${r.status === "present" ? "green" : r.status === "absent" ? "red" : "gold"}">${r.status}</span></div>`).join("") || `<p class="muted">अभी कोई हाज़िरी दर्ज नहीं है।</p>`}
+    </div>`;
+}
+
+/* ---------------- Timetable ---------------- */
+let ttClassId = null;
+const WEEKDAYS = ["रविवार", "सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार"];
+async function renderTimetable() {
+  $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
+  if (!ttClassId && myClasses.length) ttClassId = myClasses[0].id;
+  const [{ data: entries }, { data: subjects }, { data: staffList }] = await Promise.all([
+    sb.from("timetable_entries").select("*").eq("class_id", ttClassId).order("starts_at"),
+    sb.from("subjects").select("*"),
+    isStaff() ? sb.from("profiles").select("id,full_name,role").in("role", ["teacher", "admin"]) : Promise.resolve({ data: [] }),
+  ]);
+  const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "—";
+  const staffName = (id) => (staffList || []).find(s => s.id === id)?.full_name || "";
+  const fmt = (t) => (t || "").slice(0, 5);
+  $app.innerHTML = `
+    <div class="card"><h3>🗓️ Timetable</h3>
+      <div class="row">${myClasses.map(c => `<button class="${c.id === ttClassId ? "" : "light"}" data-ttcls="${c.id}">${esc(c.name)}</button>`).join("")}</div>
+    </div>
+    ${isStaff() ? `<div class="card"><h3>➕ Period जोड़ें</h3>
+      <div class="row">
+        <div><label>दिन</label><select id="tt_day">${WEEKDAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select></div>
+        <div><label>Subject</label><select id="tt_subject">${(subjects || []).filter(s => s.class_id === ttClassId).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("") || `<option value="">— subject नहीं है —</option>`}</select></div>
+      </div>
+      <div class="row">
+        <div><label>शुरू</label><input id="tt_from" type="time" value="09:00"></div>
+        <div><label>ख़त्म</label><input id="tt_to" type="time" value="09:45"></div>
+        <div><label>Teacher</label><select id="tt_teacher"><option value="">— कोई नहीं —</option>${(staffList || []).map(s => `<option value="${s.id}">${esc(s.full_name)}</option>`).join("")}</select></div>
+      </div>
+      <div class="error" id="tt_err"></div>
+      <button class="gold" id="tt_add" style="width:100%">Period जोड़ें</button></div>` : ""}
+    ${WEEKDAYS.map((d, i) => {
+      const dayEntries = (entries || []).filter(e => e.weekday === i);
+      if (!dayEntries.length) return "";
+      return `<div class="card"><h3>${d}</h3>
+        ${dayEntries.map(e => `<div class="item"><div><div class="t" style="font-size:14px">${esc(subName(e.subject_id))}</div>
+          <div class="s">🕐 ${fmt(e.starts_at)} – ${fmt(e.ends_at)}${e.teacher_id && staffName(e.teacher_id) ? " • 👨‍🏫 " + esc(staffName(e.teacher_id)) : ""}</div></div>
+          ${isStaff() ? `<button class="danger small" data-ttdel="${e.id}">✕</button>` : ""}</div>`).join("")}
+      </div>`;
+    }).join("") || `<div class="card"><p class="muted">इस class का timetable अभी नहीं बना है।</p></div>`}`;
+
+  $app.querySelectorAll("[data-ttcls]").forEach(b => b.onclick = () => { ttClassId = +b.dataset.ttcls; renderTimetable(); });
+  if (isStaff()) {
+    document.getElementById("tt_add").onclick = async () => {
+      const err = document.getElementById("tt_err"); err.textContent = "";
+      const from = document.getElementById("tt_from").value, to = document.getElementById("tt_to").value;
+      if (!from || !to) { err.textContent = "समय चुनें"; return; }
+      const { error } = await sb.from("timetable_entries").insert({
+        class_id: ttClassId, weekday: +document.getElementById("tt_day").value,
+        subject_id: document.getElementById("tt_subject").value ? +document.getElementById("tt_subject").value : null,
+        teacher_id: document.getElementById("tt_teacher").value || null,
+        starts_at: from, ends_at: to });
+      if (error) { err.textContent = error.message; return; }
+      toast("Period जुड़ गया 🗓️"); renderTimetable();
+    };
+    $app.querySelectorAll("[data-ttdel]").forEach(b => b.onclick = async () => {
+      const { error } = await sb.from("timetable_entries").delete().eq("id", +b.dataset.ttdel);
+      if (error) return toast("Error: " + error.message);
+      renderTimetable();
+    });
+  }
+}
