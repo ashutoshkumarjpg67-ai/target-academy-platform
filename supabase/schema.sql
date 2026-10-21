@@ -657,3 +657,45 @@ create policy "read class files" on storage.objects for select to authenticated
   using (bucket_id in ('materials','notes-files')
     and (public.is_staff()
          or public.enrolled_in(((storage.foldername(name))[1])::bigint)));
+
+-- ============================================================
+-- Patch (2026-10-21): attempt review for students.
+-- Correct answers + explanations are revealed ONLY after the
+-- attempt is submitted, only to the attempt owner (or staff),
+-- and only when the test's result-release rule allows it.
+-- ============================================================
+create or replace function public.get_attempt_review(p_attempt_id bigint)
+returns table (
+  question_id bigint, qtype text, question_text text, options jsonb,
+  correct_answer jsonb, explanation text, my_answer jsonb,
+  is_correct boolean, marks_awarded numeric, q_marks numeric
+)
+language plpgsql security definer set search_path = public
+as $$
+declare v_attempt public.test_attempts; v_test public.tests;
+begin
+  select * into v_attempt from public.test_attempts where id = p_attempt_id;
+  if v_attempt is null then raise exception 'attempt not found'; end if;
+  if v_attempt.student_id <> auth.uid() and not public.is_staff() then
+    raise exception 'not your attempt';
+  end if;
+  if v_attempt.status = 'in_progress' then raise exception 'test still running'; end if;
+  select * into v_test from public.tests where id = v_attempt.test_id;
+  if not public.is_staff() then
+    if v_test.result_release = 'manual' and not v_test.results_released then
+      raise exception 'result not released yet';
+    end if;
+    if v_test.result_release = 'after_end' and v_test.ends_at is not null and now() < v_test.ends_at then
+      raise exception 'result not released yet';
+    end if;
+  end if;
+  return query
+    select q.id, q.qtype, q.question_text, q.options, q.correct_answer, q.explanation,
+           ar.answer, ar.is_correct, ar.marks_awarded, coalesce(tq.marks, q.marks)
+    from public.test_questions tq
+    join public.questions q on q.id = tq.question_id
+    left join public.attempt_responses ar
+      on ar.attempt_id = p_attempt_id and ar.question_id = q.id
+    order by tq.sort_order;
+end;
+$$;
