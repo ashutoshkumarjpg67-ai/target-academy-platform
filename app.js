@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=3";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=4";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -22,6 +22,7 @@ const roleName = (r) => ({admin:"Admin • व्यवस्थापक", teac
 
 /* ---------------- Auth screens ---------------- */
 function renderAuth(mode = "login") {
+  document.body.classList.add("auth-mode");
   $tabbar.classList.add("hidden"); $logout.classList.add("hidden");
   $app.innerHTML = `
     <div class="hero">
@@ -93,8 +94,15 @@ function renderShell() {
     ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "Users" }] : []),
     { id: "more", ic: "☰", label: "More" },
   ];
-  $tabbar.innerHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+  document.body.classList.remove("auth-mode");
+  const navHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+  $tabbar.innerHTML = navHTML;
   $tabbar.classList.remove("hidden");
+  const $sidenav = document.getElementById("sidenav");
+  if ($sidenav) {
+    $sidenav.innerHTML = navHTML;
+    $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
+  }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   ({ home: renderHome, study: renderStudy, tests: renderTests, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
@@ -166,6 +174,8 @@ async function renderHome() {
         <div class="prog"><div style="width:${syllabusPct}%"></div></div>
         <div class="pct">${syllabusPct}% Syllabus पूरा • ${doneItems}/${totalItems} items पढ़े</div>
         <span class="quote">“${quote}”</span>
+        <svg class="mount" viewBox="0 0 200 90" aria-hidden="true"><circle cx="168" cy="16" r="10" fill="#ffd23e"/><path d="M0 90 L55 34 L86 62 L118 18 L150 52 L200 90 Z" fill="#17457f" opacity=".28"/><path d="M62 90 L118 18 L172 90 Z" fill="#0e2f5e" opacity=".5"/><path d="M118 18 L128 30 L118 36 L107 29 Z" fill="#fff"/><rect x="117" y="2" width="2.4" height="17" fill="#8a6400"/><path d="M119.5 2 L133 6 L119.5 10 Z" fill="#d64541"/></svg>
+        <div style="margin-top:12px"><button class="small" data-go="study">पढ़ाई जारी रखें →</button></div>
       </div>
       ${qaHTML([
         { go: "tests", ic: "📝", label: "Test दें", bg: "#fde8e8" },
@@ -175,9 +185,9 @@ async function renderHome() {
       ])}
       <div class="card"><h3>📊 मेरी प्रगति</h3>
         <div class="stats">
-          <div class="stat"><div class="n">${testsGiven}</div><div class="l">Tests दिए</div></div>
-          <div class="stat"><div class="n">${accuracy}%</div><div class="l">औसत Score</div></div>
-          <div class="stat"><div class="n">${enrolledIds.length}</div><div class="l">मेरी Classes</div></div>
+          <div class="stat"><div class="si" style="background:#e8f1fe">📝</div><div class="n">${testsGiven}</div><div class="l">Tests दिए</div></div>
+          <div class="stat"><div class="si" style="background:#e2f4ec">🎯</div><div class="n">${accuracy}%</div><div class="l">औसत Score</div></div>
+          <div class="stat"><div class="si" style="background:#efe7fd">🎓</div><div class="n">${enrolledIds.length}</div><div class="l">मेरी Classes</div></div>
         </div></div>
       <div class="card"><h3>📖 पढ़ाई जारी रखें</h3>
         ${mySubjs.length ? `<div class="subj-grid">${mySubjs.map(s => {
@@ -227,9 +237,9 @@ async function renderHome() {
     ])}
     <div class="card"><h3>📊 Academy एक नज़र में</h3>
       <div class="stats">
-        <div class="stat"><div class="n">${sc ?? 0}</div><div class="l">Students</div></div>
-        <div class="stat"><div class="n">${qc ?? 0}</div><div class="l">Questions</div></div>
-        <div class="stat"><div class="n">${tc ?? 0}</div><div class="l">Tests</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">👥</div><div class="n">${sc ?? 0}</div><div class="l">Students</div></div>
+        <div class="stat"><div class="si" style="background:#fdf3d7">❓</div><div class="n">${qc ?? 0}</div><div class="l">Questions</div></div>
+        <div class="stat"><div class="si" style="background:#fde8e8">📝</div><div class="n">${tc ?? 0}</div><div class="l">Tests</div></div>
       </div></div>
     <div class="card"><h3>🕘 ताज़ा गतिविधि</h3>
       ${(recentUsers || []).map(u => `<div class="act"><div class="ai" style="background:#e8effe">👤</div>
@@ -451,6 +461,7 @@ async function renderUsers() {
 
 /* ---------------- Study: Notes + Materials ---------------- */
 let studyClassId = null;
+let matFilter = "all";
 const KIND_ICON = { pdf: "📕", worksheet: "📝", practice: "✍️", summary: "📋", revision: "🔁", question_bank: "❓", sample_paper: "📄", pyq: "🗂️", image: "🖼️", video_link: "🎬", doc: "📘" };
 
 async function openStoredFile(bucket, path) {
@@ -484,6 +495,9 @@ async function renderStudy() {
   const inClass = (x) => !studyClassId || x.class_id === studyClassId;
   const myNotes = (notes || []).filter(inClass);
   const myMats = (materials || []).filter(inClass);
+  const dispMats = matFilter === "pdfs" ? myMats.filter(m => m.file_path)
+    : matFilter === "videos" ? myMats.filter(m => m.external_url || m.kind === "video_link")
+    : myMats;
 
   const itemCard = (x, type) => `
     <div class="item">
@@ -533,14 +547,21 @@ async function renderStudy() {
       <div class="error" id="n_err"></div>
       <button class="gold" id="n_add" style="width:100%">जोड़ें</button>
     </div>` : ""}
+    <div class="mtabs">
+      ${[["all", "सभी"], ["notes", "📗 Notes"], ["pdfs", "📕 PDFs / Files"], ["videos", "🎬 Videos"]].map(([k, l]) =>
+        `<button class="chip ${matFilter === k ? "on" : ""}" data-mf="${k}">${l}</button>`).join("")}
+    </div>
+    ${matFilter === "all" || matFilter === "notes" ? `
     <div class="card"><h3>📗 Notes (${myNotes.length})</h3>
-      ${myNotes.map(n => itemCard(n, "note")).join("") || "<p>इस class के notes जल्द आ रहे हैं।</p>"}</div>
-    <div class="card"><h3>📚 Study Material (${myMats.length})</h3>
-      ${myMats.map(m => itemCard(m, "material")).join("") || "<p>इस class का material जल्द आ रहा है।</p>"}</div>`;
+      ${myNotes.map(n => itemCard(n, "note")).join("") || "<p>इस class के notes जल्द आ रहे हैं।</p>"}</div>` : ""}
+    ${matFilter !== "notes" ? `
+    <div class="card"><h3>📚 Study Material (${dispMats.length})</h3>
+      ${dispMats.map(m => itemCard(m, "material")).join("") || "<p>इस class का material जल्द आ रहा है।</p>"}</div>` : ""}`;
 
   const noteById = (id) => (notes || []).find(n => n.id === id);
   const matById = (id) => (materials || []).find(m => m.id === id);
   $app.querySelectorAll("[data-cls]").forEach(b => b.onclick = () => { studyClassId = +b.dataset.cls; renderStudy(); });
+  $app.querySelectorAll("[data-mf]").forEach(b => b.onclick = () => { matFilter = b.dataset.mf; renderStudy(); });
   $app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
     const [type, id] = b.dataset.open.split(":");
     if (type === "note") openStoredFile("notes-files", noteById(+id).file_path);
@@ -792,8 +813,12 @@ function renderRun() {
   }
   $app.innerHTML = `
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px">
-        <h3 style="margin:0">${esc(test.title)}</h3><span class="timer" id="tTimer">⏱ --:--</span>
+      <div class="test-top">
+        <h3 style="margin:0">${esc(test.title)}</h3>
+        <span style="display:flex; gap:8px; align-items:center">
+          <span class="cnt">${run.idx + 1} / ${qs.length}</span>
+          <span class="timer-pill" id="tTimer">⏱ --:--</span>
+        </span>
       </div>
       <div class="prog" style="margin:12px 0 4px"><div style="width:${qs.length ? (answered / qs.length) * 100 : 0}%"></div></div>
       <p class="muted">सवाल ${run.idx + 1} / ${qs.length} • उत्तर दिए: ${answered} • यह सवाल ${q.marks} अंक का</p>
