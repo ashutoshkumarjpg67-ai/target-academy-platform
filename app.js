@@ -20,6 +20,67 @@ function toast(msg, ms = 2600) {
 }
 const isStaff = () => profile && (profile.role === "admin" || profile.role === "teacher");
 
+/* ---------------- Photo pick (Camera / Gallery) + auto-compress ----------------
+   Compression runs 100% inside the browser (Canvas) — free, no server/AI
+   cost. A 3-5 MB camera photo typically becomes 150-350 KB, so storage
+   use drops ~90%. Non-image files pass through untouched. */
+const fmtKB = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+
+async function compressImageFile(file, maxDim = 1280, quality = 0.82) {
+  if (!file || !/^image\//.test(file.type) || file.type === "image/gif") return file;
+  try {
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: "from-image" }); }
+    catch (_) { bmp = await createImageBitmap(file); }
+    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    if (scale >= 1 && file.size <= 350 * 1024) { if (bmp.close) bmp.close(); return file; }
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+    cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    const blob = await new Promise(r => cv.toBlob(r, "image/jpeg", quality));
+    if (!blob || blob.size >= file.size) return file;
+    const base = (file.name || "photo").replace(/\.[^.]+$/, "");
+    return new File([blob], base + ".jpg", { type: "image/jpeg" });
+  } catch (_) { return file; }
+}
+
+async function prepareUploadFile(file) {
+  const out = await compressImageFile(file);
+  if (out !== file) toast(`📷 Photo compress हो गया: ${fmtKB(file.size)} → ${fmtKB(out.size)}`);
+  return out;
+}
+
+// Turns a plain <input type=file> into a "📷 Camera / 🖼️ Gallery" picker.
+// The chosen file is placed back into the original input, so existing
+// save handlers keep reading input.files[0] unchanged.
+function enhanceFilePicker(input, { imageOnly = false } = {}) {
+  if (!input || input.dataset.enhanced) return;
+  input.dataset.enhanced = "1";
+  input.style.display = "none";
+  const cam = document.createElement("input");
+  cam.type = "file"; cam.accept = "image/*"; cam.capture = "environment"; cam.style.display = "none";
+  const wrap = document.createElement("div");
+  wrap.className = "filepick";
+  wrap.innerHTML = `
+    <div class="fp-btns">
+      <button type="button" class="light fp-cam">📷 Camera</button>
+      <button type="button" class="light fp-gal">${imageOnly ? "🖼️ Gallery" : "📁 File / Gallery"}</button>
+    </div>
+    <div class="fp-name muted">कोई file नहीं चुनी</div>`;
+  input.after(cam, wrap);
+  const nameEl = wrap.querySelector(".fp-name");
+  const pick = (f) => {
+    if (!f) return;
+    try { const dt = new DataTransfer(); dt.items.add(f); input.files = dt.files; } catch (_) {}
+    nameEl.textContent = `✔ ${f.name} (${fmtKB(f.size)})`;
+  };
+  wrap.querySelector(".fp-cam").onclick = () => cam.click();
+  wrap.querySelector(".fp-gal").onclick = () => input.click();
+  cam.onchange = () => { pick(cam.files[0]); cam.value = ""; };
+  input.addEventListener("change", () => pick(input.files[0]));
+}
+
 /* ---------------- Notifications ---------------- */
 async function notifyUsers(userIds, kind, title, body) {
   try {
@@ -714,12 +775,14 @@ async function renderUsers() {
   $app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     document.getElementById("edit-" + b.dataset.edit).classList.toggle("hidden");
   });
+  $app.querySelectorAll('input[id^="e_photo-"]').forEach(i => enhanceFilePicker(i, { imageOnly: true }));
   $app.querySelectorAll("[data-save]").forEach(b => b.onclick = async () => {
     const uid = b.dataset.save;
     try {
       let photo_path;
-      const file = document.getElementById("e_photo-" + uid).files[0];
-      if (file) {
+      const file0 = document.getElementById("e_photo-" + uid).files[0];
+      if (file0) {
+        const file = await prepareUploadFile(file0);
         const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
         photo_path = `${uid}/${Date.now()}.${ext}`;
         const { error: ue } = await sb.storage.from("avatars").upload(photo_path, file, { upsert: true });
@@ -801,6 +864,7 @@ async function openStoredFile(bucket, path) {
   window.open(data.signedUrl, "_blank");
 }
 async function uploadTo(bucket, classId, file) {
+  file = await prepareUploadFile(file);
   const safe = file.name.replace(/[^\w.\-]+/g, "_");
   const path = `${classId}/${Date.now()}_${safe}`;
   const { error } = await sb.storage.from(bucket).upload(path, file);
@@ -925,6 +989,7 @@ async function renderStudy() {
 
   if (isStaff()) {
     const kindSel = document.getElementById("n_kind");
+    enhanceFilePicker(document.getElementById("n_file"));
     kindSel.onchange = () => document.getElementById("matKindWrap").classList.toggle("hidden", kindSel.value !== "material");
     document.getElementById("n_add").onclick = async () => {
       const err = document.getElementById("n_err"); err.textContent = "";
@@ -1847,13 +1912,15 @@ async function renderHomework() {
   } else {
     $app.querySelectorAll("[data-hwsub]").forEach(b => b.onclick = () => { hwSubmitId = hwSubmitId === +b.dataset.hwsub ? null : +b.dataset.hwsub; renderHomework(); });
     const send = document.getElementById("sub_send");
+    enhanceFilePicker(document.getElementById("sub_file"));
     if (send) send.onclick = async () => {
       const err = document.getElementById("sub_err"); err.textContent = "";
       const a = list.find(x => x.id === hwSubmitId);
       try {
         let file_path = mySub(a.id)?.file_path || null;
-        const f = document.getElementById("sub_file").files[0];
-        if (f) {
+        const f0 = document.getElementById("sub_file").files[0];
+        if (f0) {
+          const f = await prepareUploadFile(f0);
           const ext = (f.name.split(".").pop() || "bin").toLowerCase();
           file_path = `${me.id}/hw-${a.id}-${Date.now()}.${ext}`;
           const { error: ue } = await sb.storage.from("avatars").upload(file_path, f, { upsert: true });

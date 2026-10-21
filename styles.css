@@ -359,3 +359,9 @@ body.auth-mode #sidebar{display:none !important}
 .bubble.me{background:#0b2a5b;color:#fff;border-color:#0b2a5b}
 #tutorForm{position:sticky;bottom:74px;z-index:5}
 @media(min-width:900px){#tutorForm{bottom:12px}}
+
+/* v22: camera/gallery file picker */
+.filepick{margin:6px 0 10px}
+.fp-btns{display:flex;gap:8px}
+.fp-btns .light{flex:1}
+.fp-name{font-size:12px;margin-top:5px}
