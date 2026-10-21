@@ -122,6 +122,7 @@ function renderShell() {
   const navHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
   const extraTabs = [
     { id: "doubts", ic: "❓", label: "Doubts" },
+    { id: "tutor", ic: "🤖", label: "AI Tutor" },
     { id: "live", ic: "📺", label: "Live Class" },
     { id: "top", ic: "🏆", label: "Leaderboard" },
     { id: "homework", ic: "📒", label: "Homework" },
@@ -138,7 +139,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, doubts: renderDoubts, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -1382,6 +1383,7 @@ async function renderMore() {
     <div class="card">
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
       <div class="menu-item" data-nav="doubts" style="cursor:pointer"><span class="mi">❓</span>Doubts<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="tutor" style="cursor:pointer"><span class="mi">🤖</span>AI Tutor<span class="arr">›</span></div>
       <div class="menu-item" data-nav="live" style="cursor:pointer"><span class="mi">📺</span>Live Class<span class="arr">›</span></div>
       <div class="menu-item" data-nav="top" style="cursor:pointer"><span class="mi">🏆</span>Leaderboard<span class="arr">›</span></div>
       <div class="menu-item" data-nav="homework" style="cursor:pointer"><span class="mi">📒</span>Homework<span class="arr">›</span></div>
@@ -1502,6 +1504,45 @@ async function renderTop() {
         <div class="s muted" style="margin-top:4px">Tests दिए: ${r.tests_given}</div>
       </div>`).join("") || `<div class="card"><p class="muted">अभी किसी ने test नहीं दिया है — पहले test के बाद रैंकिंग यहाँ दिखेगी।</p></div>`}`;
   $app.querySelectorAll("[data-tclass]").forEach(b => b.onclick = () => { topClass = b.dataset.tclass; renderTop(); });
+}
+
+/* ---------------- AI Tutor ---------------- */
+let tutorChat = [];   // {role:'me'|'ai', text} — kept while the app stays open
+let tutorBusy = false;
+async function renderTutor() {
+  const chips = ["प्रकाश का अपवर्तन समझाइए", "Photosynthesis क्या होता है?", "त्रिभुज के कोणों का योग 180° क्यों होता है?", "Water cycle समझाइए", "x + 5 = 12 कैसे हल होगा?"];
+  const bubble = (m) => m.role === "me"
+    ? `<div class="chatrow me"><div class="bubble me">${esc(m.text)}</div></div>`
+    : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${esc(m.text).replace(/\n/g, "<br>")}</div></div>`;
+  $app.innerHTML = `
+    <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
+      <p class="muted" style="margin:6px 0 0">पढ़ाई का कोई भी सवाल पूछें — AI Tutor आसान हिंदी में step-by-step समझाएगा।</p>
+      ${tutorChat.length ? "" : `<div class="row" style="margin-top:10px">${chips.map(c => `<button class="light small" data-tchip="${esc(c)}">${esc(c)}</button>`).join("")}</div>`}
+    </div>
+    <div id="tutorMsgs">${tutorChat.map(bubble).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 लिख रहा है…</div></div>` : ""}</div>
+    <form id="tutorForm" class="card">
+      <div class="row">
+        <input id="tutorInput" placeholder="अपना सवाल लिखें…" style="flex:1" ${tutorBusy ? "disabled" : ""}>
+        <button type="submit" ${tutorBusy ? "disabled" : ""}>पूछें ➤</button>
+      </div>
+      ${tutorChat.length ? `<button type="button" class="light small" id="tutorClear" style="margin-top:8px">🧹 बातचीत साफ़ करें</button>` : ""}
+    </form>`;
+  const send = async (text) => {
+    const q = (text || "").trim(); if (!q || tutorBusy) return;
+    tutorChat.push({ role: "me", text: q });
+    tutorBusy = true; renderTutor();
+    const history = tutorChat.slice(0, -1).map(m => ({ role: m.role === "ai" ? "ai" : "user", text: m.text }));
+    const { data, error } = await sb.functions.invoke("ask-tutor", { body: { question: q, history } });
+    tutorBusy = false;
+    if (error || !data?.answer) tutorChat.push({ role: "ai", text: "माफ़ करना, अभी जवाब नहीं बन पाया। थोड़ी देर बाद फिर कोशिश करें।" });
+    else tutorChat.push({ role: "ai", text: data.answer });
+    renderTutor();
+  };
+  document.getElementById("tutorForm").onsubmit = (e) => { e.preventDefault(); send(document.getElementById("tutorInput").value); };
+  $app.querySelectorAll("[data-tchip]").forEach(b => b.onclick = () => send(b.dataset.tchip));
+  const clr = document.getElementById("tutorClear");
+  if (clr) clr.onclick = () => { tutorChat = []; renderTutor(); };
+  window.scrollTo(0, document.body.scrollHeight);
 }
 
 /* ---------------- Doubts ---------------- */

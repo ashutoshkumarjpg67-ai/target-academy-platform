@@ -351,3 +351,11 @@ body.auth-mode #sidebar{display:none !important}
 
 /* Notifications bell badge (v18) */
 .bellbadge{position:absolute;top:-6px;right:-6px;background:#e11d48;color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:999px;padding:0 4px}
+
+/* AI Tutor chat (v19) */
+.chatrow{display:flex;margin:8px 0}
+.chatrow.me{justify-content:flex-end}
+.bubble{max-width:86%;padding:10px 12px;border-radius:14px;background:#eef2ff;border:1px solid #d7e0ff;line-height:1.55}
+.bubble.me{background:#0b2a5b;color:#fff;border-color:#0b2a5b}
+#tutorForm{position:sticky;bottom:74px;z-index:5}
+@media(min-width:900px){#tutorForm{bottom:12px}}
