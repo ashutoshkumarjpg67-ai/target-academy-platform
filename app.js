@@ -99,47 +99,150 @@ function renderShell() {
   ({ home: renderHome, study: renderStudy, tests: renderTests, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
-/* ---------------- Home ---------------- */
-async function renderHome() {
-  $app.innerHTML = `
-    <div class="hero">
-      <span class="badge">${esc(roleName(profile.role))}</span>
-      <h1>नमस्ते, ${esc(profile.full_name.split(" ")[0])} 🙏</h1>
-      <p>${isStaff() ? "आज की classes, tests और announcements यहाँ से संभालें।" : "आपकी पढ़ाई का आज का हाल — notes, tests और notices एक जगह।"}</p>
-    </div>
-    <div id="homeBody"><div class="loading">लोड हो रहा है…</div></div>`;
-  const body = document.getElementById("homeBody");
-  let html = "";
+/* ---------------- Home (EduPlus-style dashboard) ---------------- */
+function dayGreet() {
+  const h = new Date().getHours();
+  return h < 12 ? "Good Morning" : h < 17 ? "Good Afternoon" : "Good Evening";
+}
+function subjStyle(name = "") {
+  const n = name.toLowerCase();
+  if (n.includes("math") || n.includes("गणित")) return { i: "π", c: "#7c3aed" };
+  if (n.includes("phys") || n.includes("भौतिक")) return { i: "⚛", c: "#16a34a" };
+  if (n.includes("chem") || n.includes("रसायन")) return { i: "🧪", c: "#ea580c" };
+  if (n.includes("bio") || n.includes("जीव")) return { i: "🌿", c: "#059669" };
+  if (n.includes("eng")) return { i: "A", c: "#dc2626" };
+  if (n.includes("hindi") || n.includes("हिन्दी") || n.includes("हिंदी")) return { i: "अ", c: "#b45309" };
+  if (n.includes("social") || n.includes("sst") || n.includes("सामाजिक")) return { i: "🌍", c: "#0891b2" };
+  if (n.includes("comp") || n.includes("कंप्यूटर")) return { i: "💻", c: "#4f46e5" };
+  if (n.includes("sanskrit") || n.includes("संस्कृत")) return { i: "ॐ", c: "#be185d" };
+  if (n.includes("sci") || n.includes("विज्ञान")) return { i: "🔬", c: "#0d9488" };
+  return { i: "📘", c: "#17457f" };
+}
+function greetHTML(sub) {
+  return `<div class="greet">
+    <div class="avatar">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
+    <div><div class="g1">${dayGreet()} 🌤️ • ${esc(roleName(profile.role))}</div>
+    <div class="g2">${esc(profile.full_name)}</div>
+    <div class="g3">${esc(sub)}</div></div></div>`;
+}
+function qaHTML(items) {
+  return `<div class="qa-grid">${items.map(x => `
+    <div class="qa" data-go="${x.go}"><div class="qi" style="background:${x.bg}">${x.ic}</div><div class="ql">${x.label}</div></div>`).join("")}</div>`;
+}
+function wireQA() {
+  $app.querySelectorAll("[data-go]").forEach(el => el.onclick = () => { tab = el.dataset.go; renderShell(); });
+}
 
+async function renderHome() {
+  $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
   if (!isStaff()) {
-    const { data: enr } = await sb.from("enrollments").select("class_id").eq("user_id", me.id);
-    const enrolledIds = (enr || []).map(e => e.class_id);
-    const mine = myClasses.filter(c => enrolledIds.includes(c.id));
-    html += `<div class="card"><h3>🎓 मेरी Class</h3>` +
-      (mine.length
-        ? mine.map(c => `<div class="item"><div><div class="t">${esc(c.name)}</div><div class="s">Target Academy</div></div><span class="pill green">Enrolled</span></div>`).join("")
-        : `<p>अभी किसी class में enrollment नहीं है। Academy में संपर्क करें — आपका नाम आपकी class में जोड़ दिया जाएगा।</p>`) + `</div>`;
-  } else {
-    const [{ count: sc }, { count: qc }, { count: tc }] = await Promise.all([
-      sb.from("profiles").select("*", { count: "exact", head: true }).eq("role", "student"),
-      sb.from("questions").select("*", { count: "exact", head: true }),
-      sb.from("tests").select("*", { count: "exact", head: true }),
+    const [{ data: enr }, { data: subjects }, { data: chapters }, { data: notes }, { data: mats }, { data: prog }, { data: attempts }, { data: anns }] = await Promise.all([
+      sb.from("enrollments").select("class_id").eq("user_id", me.id),
+      sb.from("subjects").select("*").order("sort_order"),
+      sb.from("chapters").select("*").order("sort_order"),
+      sb.from("notes").select("id,class_id,subject_id").eq("status", "published"),
+      sb.from("materials").select("id,class_id,subject_id").eq("status", "published"),
+      sb.from("content_progress").select("*").eq("user_id", me.id).eq("completed", true),
+      sb.from("test_attempts").select("*").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
+      sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(4),
     ]);
-    html += `<div class="card"><h3>📊 Academy एक नज़र में</h3>
+    const enrolledIds = (enr || []).map(e => e.class_id);
+    const mySubjs = (subjects || []).filter(s => enrolledIds.includes(s.class_id));
+    const items = [...(notes || []).map(n => ({ ...n, type: "note" })), ...(mats || []).map(m => ({ ...m, type: "material" }))];
+    const doneSet = new Set((prog || []).map(p => p.item_type + ":" + p.item_id));
+    const totalItems = items.length;
+    const doneItems = items.filter(x => doneSet.has(x.type + ":" + x.id)).length;
+    const syllabusPct = totalItems ? Math.round((doneItems / totalItems) * 100) : 0;
+    const testsGiven = (attempts || []).length;
+    const accuracy = testsGiven ? Math.round((attempts || []).reduce((s, a) => s + (+a.percent || 0), 0) / testsGiven) : 0;
+    const quotes = ["अनुशासन आज, सफलता कल। मेहनत कभी बेकार नहीं जाती।", "छोटे-छोटे कदम रोज़ — बड़ी मंज़िल एक दिन।", "आज का अभ्यास, कल का परिणाम।"];
+    const quote = quotes[new Date().getDate() % quotes.length];
+
+    $app.innerHTML = `
+      ${greetHTML("Keep going! आपकी मेहनत रंग लाएगी ✨")}
+      <div class="goal">
+        <h2>मेरा लक्ष्य 🎯</h2>
+        <div class="sub">पढ़ें • अभ्यास करें • सफल हों</div>
+        <div class="prog"><div style="width:${syllabusPct}%"></div></div>
+        <div class="pct">${syllabusPct}% Syllabus पूरा • ${doneItems}/${totalItems} items पढ़े</div>
+        <span class="quote">“${quote}”</span>
+      </div>
+      ${qaHTML([
+        { go: "tests", ic: "📝", label: "Test दें", bg: "#fde8e8" },
+        { go: "study", ic: "📚", label: "Notes पढ़ें", bg: "#e2f4ec" },
+        { go: "study", ic: "⬇️", label: "Material", bg: "#e8effe" },
+        { go: "more", ic: "👤", label: "My Profile", bg: "#fdf3d7" },
+      ])}
+      <div class="card"><h3>📊 मेरी प्रगति</h3>
+        <div class="stats">
+          <div class="stat"><div class="n">${testsGiven}</div><div class="l">Tests दिए</div></div>
+          <div class="stat"><div class="n">${accuracy}%</div><div class="l">औसत Score</div></div>
+          <div class="stat"><div class="n">${enrolledIds.length}</div><div class="l">मेरी Classes</div></div>
+        </div></div>
+      <div class="card"><h3>📖 पढ़ाई जारी रखें</h3>
+        ${mySubjs.length ? `<div class="subj-grid">${mySubjs.map(s => {
+          const st = subjStyle(s.name);
+          const sItems = items.filter(x => x.subject_id === s.id);
+          const sDone = sItems.filter(x => doneSet.has(x.type + ":" + x.id)).length;
+          const p = sItems.length ? Math.round((sDone / sItems.length) * 100) : 0;
+          return `<div class="subj"><div class="sic" style="background:${st.c}">${st.i}</div>
+            <div style="flex:1"><div class="st">${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</div>
+            <div class="ss">${(chapters || []).filter(c => c.subject_id === s.id).length} Chapters</div>
+            <div class="bar"><div style="width:${p}%; background:${st.c}"></div></div></div>
+            <div class="sp">${p}%</div></div>`;
+        }).join("")}</div>` : `<p>अभी किसी class में enrollment नहीं है। Academy में संपर्क करें — आपका नाम आपकी class में जोड़ दिया जाएगा।</p>`}
+      </div>
+      <div class="card"><h3>🕘 ताज़ा गतिविधि</h3>
+        ${(attempts || []).slice(0, 3).map(a => `<div class="act"><div class="ai" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">${a.passed ? "🏆" : "📝"}</div>
+          <div><div class="at">Test पूरा किया — Score ${a.score}/${a.max_score} (${a.percent}%)</div>
+          <div class="as">${new Date(a.submitted_at).toLocaleString("hi-IN")}</div></div></div>`).join("")}
+        ${(anns || []).map(a => `<div class="act"><div class="ai" style="background:#fdf3d7">📢</div>
+          <div><div class="at">${esc(a.title)}</div><div class="as">${esc(a.body || "")}</div></div></div>`).join("")}
+        ${!(attempts || []).length && !(anns || []).length ? `<p>अभी कोई गतिविधि नहीं है।</p>` : ""}
+      </div>`;
+    wireQA();
+    return;
+  }
+
+  // ---- Staff / Admin dashboard ----
+  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { data: profs }] = await Promise.all([
+    sb.from("profiles").select("*", { count: "exact", head: true }).eq("role", "student"),
+    sb.from("questions").select("*", { count: "exact", head: true }),
+    sb.from("tests").select("*", { count: "exact", head: true }),
+    sb.from("profiles").select("*").order("created_at", { ascending: false }).limit(4),
+    sb.from("test_attempts").select("*").neq("status", "in_progress").order("submitted_at", { ascending: false }).limit(4),
+    sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(3),
+    sb.from("profiles").select("id,full_name"),
+  ]);
+  const nameOf = (id) => (profs || []).find(p => p.id === id)?.full_name || "Student";
+  $app.innerHTML = `
+    ${greetHTML("हर बच्चे की सफलता, हमारी पहचान 🌟")}
+    ${qaHTML([
+      { go: "manage", ic: "🏫", label: "Classes", bg: "#e8effe" },
+      { go: "tests", ic: "📝", label: "Tests", bg: "#fde8e8" },
+      { go: "study", ic: "📚", label: "Content", bg: "#e2f4ec" },
+      profile.role === "admin"
+        ? { go: "users", ic: "👥", label: "Students", bg: "#fdf3d7" }
+        : { go: "more", ic: "👤", label: "My Profile", bg: "#fdf3d7" },
+    ])}
+    <div class="card"><h3>📊 Academy एक नज़र में</h3>
       <div class="stats">
         <div class="stat"><div class="n">${sc ?? 0}</div><div class="l">Students</div></div>
         <div class="stat"><div class="n">${qc ?? 0}</div><div class="l">Questions</div></div>
         <div class="stat"><div class="n">${tc ?? 0}</div><div class="l">Tests</div></div>
-      </div></div>`;
-  }
-
-  const { data: anns } = await sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(5);
-  html += `<div class="card"><h3>📢 Notices / घोषणाएँ</h3>` +
-    ((anns && anns.length)
-      ? anns.map(a => `<div class="item"><div><div class="t">${esc(a.title)}</div><div class="s">${esc(a.body || "")}</div></div><span class="pill">${new Date(a.created_at).toLocaleDateString("hi-IN")}</span></div>`).join("")
-      : `<p>अभी कोई notice नहीं है।</p>`) + `</div>`;
-
-  body.innerHTML = html;
+      </div></div>
+    <div class="card"><h3>🕘 ताज़ा गतिविधि</h3>
+      ${(recentUsers || []).map(u => `<div class="act"><div class="ai" style="background:#e8effe">👤</div>
+        <div><div class="at">नया खाता: ${esc(u.full_name)} (${esc(u.role)})</div>
+        <div class="as">${new Date(u.created_at).toLocaleString("hi-IN")}</div></div></div>`).join("")}
+      ${(recentAttempts || []).map(a => `<div class="act"><div class="ai" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">📝</div>
+        <div><div class="at">${esc(nameOf(a.student_id))} ने test दिया — ${a.score}/${a.max_score} (${a.percent}%)</div>
+        <div class="as">${new Date(a.submitted_at).toLocaleString("hi-IN")}</div></div></div>`).join("")}
+      ${(anns || []).map(a => `<div class="act"><div class="ai" style="background:#fdf3d7">📢</div>
+        <div><div class="at">${esc(a.title)}</div><div class="as">${esc(a.body || "")}</div></div></div>`).join("")}
+      ${!(recentUsers || []).length && !(recentAttempts || []).length ? `<p>अभी कोई गतिविधि नहीं है।</p>` : ""}
+    </div>`;
+  wireQA();
 }
 
 /* ---------------- Manage: academic structure (staff) ---------------- */
@@ -404,6 +507,14 @@ async function renderStudy() {
   $app.innerHTML = `
     <div class="card"><h3>🎓 Class चुनें</h3>
       <div class="row">${myClasses.map(c => `<button class="${c.id === studyClassId ? "" : "light"}" data-cls="${c.id}">${esc(c.name)}</button>`).join("") || "<p>कोई class नहीं है।</p>"}</div>
+    </div>
+    <div class="card"><h3>📚 Subjects</h3>
+      <div class="subj-grid">${(subjects || []).filter(s => s.class_id === studyClassId).map(s => {
+        const st = subjStyle(s.name);
+        return `<div class="subj"><div class="sic" style="background:${st.c}">${st.i}</div>
+          <div style="flex:1"><div class="st">${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</div>
+          <div class="ss">${(chapters || []).filter(c => c.subject_id === s.id).length} Chapters • ${myNotes.filter(n => n.subject_id === s.id).length + myMats.filter(m => m.subject_id === s.id).length} items</div></div></div>`;
+      }).join("") || `<p class="muted">इस class में अभी subjects नहीं हैं।</p>`}</div>
     </div>
     ${isStaff() ? `
     <div class="card"><h3>➕ Note / Material जोड़ें</h3>
@@ -690,6 +801,7 @@ function renderRun() {
       ${body}
       <div class="row" style="margin-top:14px">
         <button class="light" id="prevQ" ${run.idx === 0 ? "disabled" : ""}>← पिछला</button>
+        <button class="light" id="clearQ">🧹 Clear</button>
         <button class="${run.review.has(q.question_id) ? "gold" : "light"}" id="revQ">🔖 Review</button>
         <button class="light" id="nextQ" ${run.idx === qs.length - 1 ? "disabled" : ""}>अगला →</button>
       </div>
@@ -706,6 +818,9 @@ function renderRun() {
   if (txt) txt.onchange = async () => { run.answers.set(q.question_id, [txt.value]); await saveAnswer(q.question_id); renderRun(); };
   document.getElementById("prevQ").onclick = () => { run.idx--; renderRun(); };
   document.getElementById("nextQ").onclick = () => { run.idx++; renderRun(); };
+  document.getElementById("clearQ").onclick = async () => {
+    run.answers.delete(q.question_id); await saveAnswer(q.question_id); renderRun();
+  };
   document.getElementById("revQ").onclick = async () => {
     run.review.has(q.question_id) ? run.review.delete(q.question_id) : run.review.add(q.question_id);
     await saveAnswer(q.question_id); renderRun();
@@ -769,23 +884,38 @@ async function showResult(attemptId, test) {
     <button class="light" style="width:100%" onclick="location.reload()">← Tests पर वापस</button>`;
 }
 
-/* ---------------- More ---------------- */
+/* ---------------- More / Profile ---------------- */
 async function renderMore() {
-  let extra = "";
+  let classNames = [];
+  let testsGiven = 0, avg = 0;
   if (profile.role === "student") {
-    const { data: enr } = await sb.from("enrollments").select("class_id").eq("user_id", me.id);
-    const names = (enr || []).map(e => (myClasses.find(c => c.id === e.class_id) || {}).name).filter(Boolean);
-    extra = `<div class="item"><div><div class="t">मेरी Classes</div><div class="s">${names.join(", ") || "—"}</div></div></div>`;
+    const [{ data: enr }, { data: atts }] = await Promise.all([
+      sb.from("enrollments").select("class_id").eq("user_id", me.id),
+      sb.from("test_attempts").select("percent").eq("student_id", me.id).neq("status", "in_progress"),
+    ]);
+    classNames = (enr || []).map(e => (myClasses.find(c => c.id === e.class_id) || {}).name).filter(Boolean);
+    testsGiven = (atts || []).length;
+    avg = testsGiven ? Math.round((atts || []).reduce((s, a) => s + (+a.percent || 0), 0) / testsGiven) : 0;
   }
   $app.innerHTML = `
-    <div class="card"><h3>👤 मेरी Profile</h3>
-      <div class="item"><div><div class="t">${esc(profile.full_name)}</div><div class="s">${esc(me.email)}</div></div><span class="pill gold">${esc(profile.role)}</span></div>
-      ${extra}
+    <div class="card" style="text-align:center">
+      <div class="avatar" style="width:76px; height:76px; font-size:30px; margin:4px auto 10px">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
+      <div style="font-size:19px; font-weight:900; color:var(--navy)">${esc(profile.full_name)}</div>
+      <div class="muted">${esc(me.email)}</div>
+      <div style="margin-top:8px"><span class="pill gold">${esc(roleName(profile.role))}</span></div>
+      ${profile.role === "student" ? `<div class="stats" style="margin-top:14px">
+        <div class="stat"><div class="n">${testsGiven}</div><div class="l">Tests दिए</div></div>
+        <div class="stat"><div class="n">${avg}%</div><div class="l">औसत Score</div></div>
+        <div class="stat"><div class="n">${classNames.length}</div><div class="l">Classes</div></div>
+      </div>` : ""}
     </div>
-    <div class="card"><h3>🎯 Target Academy Coaching Centre</h3>
-      <p>Manikpur, Gopalganj, Bihar<br>Director: Ashutosh Kumar</p>
-      <p class="muted">Platform version: Phase 1 (Foundation) — login, roles, dashboards व academic structure live है।</p>
-    </div>`;
+    <div class="card">
+      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
+      <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
+      <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
+      <div class="menu-item"><span class="mi">📱</span>Platform<span class="arr">Target Academy v2</span></div>
+    </div>
+    <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 Logout करें</button>`;
 }
 
 /* ---------------- Start ---------------- */
