@@ -188,6 +188,7 @@ function renderAuth(mode = "login") {
       <span class="badge">ADMISSION OPEN</span>
       <h1>पढ़ाई अब हर घर तक 📚</h1>
       <p>Target Academy के notes, study material और online tests — अब एक ही app में। Login करके अपनी class की पढ़ाई शुरू करें।</p>
+      <div class="auth-feats"><span class="af">📚 Notes व Material</span><span class="af">📝 Online Tests</span><span class="af">🤖 AI Tutor</span><span class="af">📲 Phone सूचनाएँ</span></div>
     </div>
     <div class="card">
       <h3>${mode === "login" ? "Login करें" : "नया खाता बनाएँ (Sign up)"}</h3>
@@ -303,9 +304,9 @@ function subjStyle(name = "") {
   if (n.includes("sci") || n.includes("विज्ञान")) return { i: "🔬", c: "#0d9488" };
   return { i: "📘", c: "#17457f" };
 }
-function greetHTML(sub) {
+function greetHTML(sub, photoUrl) {
   return `<div class="greet">
-    <div class="avatar">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
+    <div class="avatar">${photoUrl ? `<img src="${photoUrl}" alt="">` : esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
     <div><div class="g1">${dayGreet()} 🌤️ • ${esc(roleName(profile.role))}</div>
     <div class="g2">${esc(profile.full_name)}</div>
     <div class="g3">${esc(sub)}</div></div></div>`;
@@ -321,7 +322,7 @@ function wireQA() {
 async function renderHome() {
   $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
   if (!isStaff()) {
-    const [{ data: enr }, { data: subjects }, { data: chapters }, { data: notes }, { data: mats }, { data: prog }, { data: attempts }, { data: anns }] = await Promise.all([
+    const [{ data: enr }, { data: subjects }, { data: chapters }, { data: notes }, { data: mats }, { data: prog }, { data: attempts }, { data: anns }, { data: lives }] = await Promise.all([
       sb.from("enrollments").select("class_id").eq("user_id", me.id),
       sb.from("subjects").select("*").order("sort_order"),
       sb.from("chapters").select("*").order("sort_order"),
@@ -330,8 +331,15 @@ async function renderHome() {
       sb.from("content_progress").select("*").eq("user_id", me.id).eq("completed", true),
       sb.from("test_attempts").select("*").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
       sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(4),
+      sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
     ]);
     const enrolledIds = (enr || []).map(e => e.class_id);
+    let greetPhoto = null;
+    if (profile.photo_path) {
+      const { data: sg } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
+      greetPhoto = sg?.signedUrl || null;
+    }
+    const myLives = (lives || []).filter(l => enrolledIds.includes(l.class_id)).slice(0, 3);
     const mySubjs = (subjects || []).filter(s => enrolledIds.includes(s.class_id));
     const items = [...(notes || []).map(n => ({ ...n, type: "note" })), ...(mats || []).map(m => ({ ...m, type: "material" }))];
     const doneSet = new Set((prog || []).map(p => p.item_type + ":" + p.item_id));
@@ -349,7 +357,8 @@ async function renderHome() {
     const quote = quotes[new Date().getDate() % quotes.length];
 
     $app.innerHTML = `
-      ${greetHTML("Keep going! आपकी मेहनत रंग लाएगी ✨")}
+      ${greetHTML("Keep going! आपकी मेहनत रंग लाएगी ✨", greetPhoto)}
+      <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="Notes, videos, PDF खोजें…"><button class="small gold" id="homeGo">खोजें</button></div>
       <div class="goal">
         <h2>मेरा लक्ष्य 🎯</h2>
         <div class="sub">पढ़ें • अभ्यास करें • सफल हों</div>
@@ -362,11 +371,16 @@ async function renderHome() {
         <div style="margin-top:12px"><button class="small" data-go="study">पढ़ाई जारी रखें →</button></div>
       </div>
       ${qaHTML([
-        { go: "tests", ic: "📝", label: "Test दें", bg: "#fde8e8" },
-        { go: "study", ic: "📚", label: "Notes पढ़ें", bg: "#e2f4ec" },
-        { go: "fees", ic: "💰", label: "मेरी Fees", bg: "#e8effe" },
-        { go: "more", ic: "👤", label: "My Profile", bg: "#fdf3d7" },
+        { go: "live", ic: "📺", label: "Live Class", bg: "#fde8e8" },
+        { go: "tests", ic: "📝", label: "Test दें", bg: "#e2f4ec" },
+        { go: "tutor", ic: "🤖", label: "AI Doubt", bg: "#efe7fd" },
+        { go: "study", ic: "📚", label: "Notes पढ़ें", bg: "#fdf3d7" },
       ])}
+      ${myLives.length ? `<div class="card"><h3>📺 आने वाली Live Classes</h3>
+        ${myLives.map(l => { const isLive = new Date(l.starts_at).getTime() <= Date.now(); return `<div class="frow"><div class="fic" style="background:#fdecea">📺</div>
+          <div style="flex:1"><div class="ft">${esc(l.title)}</div><div class="fs">${esc((myClasses.find(c => c.id === l.class_id) || {}).name || "")} • 🕐 ${new Date(l.starts_at).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div></div>
+          ${isLive ? `<button class="gold small" data-join="${esc(l.meet_link)}">▶ Join करें</button>` : `<span class="pill gold">जल्द आ रही है</span>`}</div>`; }).join("")}
+      </div>` : ""}
       <div class="card"><h3>📊 मेरी प्रगति</h3>
         <div class="stats">
           <div class="stat"><div class="si" style="background:#e8f1fe">📝</div><div class="n">${testsGiven}</div><div class="l">Tests दिए</div></div>
@@ -383,7 +397,7 @@ async function renderHome() {
             <div style="flex:1"><div class="st">${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</div>
             <div class="ss">${(chapters || []).filter(c => c.subject_id === s.id).length} Chapters</div>
             <div class="bar"><div style="width:${p}%; background:${st.c}"></div></div></div>
-            <div class="sp">${p}%</div></div>`;
+            <div class="sp">${p}%</div><div class="playb">▶</div></div>`;
         }).join("")}</div>` : `<p>अभी किसी class में enrollment नहीं है। Academy में संपर्क करें — आपका नाम आपकी class में जोड़ दिया जाएगा।</p>`}
       </div>
       <div class="card"><h3>🕘 ताज़ा गतिविधि</h3>
@@ -395,6 +409,11 @@ async function renderHome() {
         ${!(attempts || []).length && !(anns || []).length ? `<p>अभी कोई गतिविधि नहीं है।</p>` : ""}
       </div>`;
     wireQA();
+    const hq = document.getElementById("homeQ");
+    const goSearch = () => { studyQuery = (hq?.value || "").trim(); studyLesson = null; tab = "study"; renderShell(); };
+    document.getElementById("homeGo")?.addEventListener("click", goSearch);
+    hq?.addEventListener("keydown", (e) => { if (e.key === "Enter") goSearch(); });
+    $app.querySelectorAll("[data-join]").forEach(b => b.onclick = () => window.open(b.dataset.join, "_blank"));
     $app.querySelectorAll("[data-entersubj]").forEach(el => el.onclick = () => { studyClassId = +el.dataset.entersubj; tab = "study"; renderShell(); });
     return;
   }
@@ -900,6 +919,8 @@ async function renderUsers() {
 /* ---------------- Study: Notes + Materials ---------------- */
 let studyClassId = null;
 let matFilter = "all";
+let studyQuery = "";
+let studyLesson = null;
 const KIND_ICON = { pdf: "📕", worksheet: "📝", practice: "✍️", summary: "📋", revision: "🔁", question_bank: "❓", sample_paper: "📄", pyq: "🗂️", image: "🖼️", video_link: "🎬", doc: "📘" };
 
 async function openStoredFile(bucket, path) {
@@ -933,8 +954,50 @@ async function renderStudy() {
   const isDone = (type, id) => (prog || []).some(p => p.item_type === type && p.item_id === id && p.completed);
   if (studyClassId && !myClasses.some(c => c.id === studyClassId)) studyClassId = null;
   const inClass = (x) => !studyClassId || x.class_id === studyClassId;
-  const myNotes = (notes || []).filter(inClass);
-  const myMats = (materials || []).filter(inClass);
+  const ytIdOf = (u = "") => (String(u).match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{6,})/) || [])[1] || null;
+  const qLow = studyQuery.trim().toLowerCase();
+  const matchQ = (x) => !qLow || (x.title || "").toLowerCase().includes(qLow) || subName(x.subject_id).toLowerCase().includes(qLow);
+  const myNotes = (notes || []).filter(inClass).filter(matchQ);
+  const myMats = (materials || []).filter(inClass).filter(matchQ);
+
+  // ---- Lesson view (video material, EduPlus-style) ----
+  if (studyLesson) {
+    const lm = (materials || []).find(m => m.id === studyLesson);
+    if (!lm) { studyLesson = null; }
+    else {
+      const yt = ytIdOf(lm.external_url);
+      const relNote = (notes || []).find(n => n.chapter_id && lm.chapter_id && n.chapter_id === lm.chapter_id && n.class_id === lm.class_id && n.body);
+      $app.innerHTML = `
+        <button class="light small" id="lessonBack">← सभी Material पर वापस</button>
+        <div class="card" style="margin-top:12px; padding:0; overflow:hidden">
+          ${yt ? `<div class="lesson-video"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" title="${esc(lm.title)}" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`
+               : `<div style="padding:26px 18px; text-align:center"><div style="font-size:44px">🎬</div><p class="muted">यह video बाहर खुलेगा</p></div>`}
+          <div style="padding:16px">
+            <h3 style="border:0; padding-left:0; margin-top:0">🎬 ${esc(lm.title)}</h3>
+            <p class="muted">${esc(clsName(lm.class_id))} • ${esc(subName(lm.subject_id))}${lm.chapter_id ? " • " + esc(chapName(lm.chapter_id)) : ""}</p>
+            ${lm.description ? `<p>${esc(lm.description)}</p>` : ""}
+            <div class="row" style="margin-top:10px">
+              ${lm.external_url ? `<button class="gold" id="lessonExt">YouTube पर खोलें ↗</button>` : ""}
+              ${!isStaff() ? `<button class="light" id="lessonDone">${isDone("material", lm.id) ? "✓ पढ़ लिया" : "पढ़ा हुआ निशान लगाएँ"}</button>` : ""}
+            </div>
+          </div>
+        </div>
+        ${relNote ? `<div class="card"><h3>📝 Key Points — जुड़ा हुआ Note</h3>
+          <div style="font-weight:800">${esc(relNote.title)}</div>
+          <div class="note-body" id="lessonNoteBody"></div></div>` : ""}`;
+      document.getElementById("lessonBack").onclick = () => { studyLesson = null; renderStudy(); };
+      const le = document.getElementById("lessonExt");
+      if (le) le.onclick = () => window.open(lm.external_url, "_blank");
+      const ld = document.getElementById("lessonDone");
+      if (ld) ld.onclick = async () => {
+        await sb.from("content_progress").upsert({ user_id: me.id, item_type: "material", item_id: lm.id, completed: !isDone("material", lm.id), last_opened_at: new Date().toISOString() }, { onConflict: "user_id,item_type,item_id" });
+        renderStudy();
+      };
+      const nb = document.getElementById("lessonNoteBody");
+      if (nb && relNote) nb.textContent = relNote.body || "";
+      return;
+    }
+  }
   const dispMats = matFilter === "pdfs" ? myMats.filter(m => m.file_path)
     : matFilter === "videos" ? myMats.filter(m => m.external_url || m.kind === "video_link")
     : myMats;
@@ -953,7 +1016,7 @@ async function renderStudy() {
           <button class="light small" data-bm="${type}:${x.id}">${isBm(type, x.id) ? "★" : "☆"}</button>
           ${type === "note" && x.body ? `<button class="small" data-body="${x.id}">पढ़ें</button>` : ""}
           ${x.file_path ? `<button class="small" data-open="${type}:${x.id}">खोलें</button>` : ""}
-          ${x.external_url ? `<button class="small" data-ext="${x.id}">खोलें</button>` : ""}
+          ${x.external_url ? (type === "material" && (x.kind === "video_link" || ytIdOf(x.external_url)) ? `<button class="small" data-lesson="${x.id}">▶ Lesson</button>` : `<button class="small" data-ext="${x.id}">खोलें</button>`) : ""}
         </div>
         ${!isStaff() ? `<button class="light small" data-done="${type}:${x.id}">${isDone(type, x.id) ? "✓ पढ़ लिया" : "पढ़ा हुआ निशान लगाएँ"}</button>` : ""}
       </div>
@@ -992,6 +1055,8 @@ async function renderStudy() {
       <div class="error" id="n_err"></div>
       <button class="gold" id="n_add" style="width:100%">जोड़ें</button>
     </div>` : ""}
+    <div class="searchbar"><span>🔍</span><input id="studyQ" placeholder="शीर्षक या subject से खोजें…" value="${esc(studyQuery)}"><button class="small gold" id="studyGo">खोजें</button></div>
+    ${qLow ? `<div class="card" style="padding:12px 16px"><b>🔍 “${esc(studyQuery)}”</b> <span class="muted">के कुल ${myNotes.length + myMats.length} नतीजे</span><button class="link" id="studyClear" style="float:right">✖ खोज साफ़ करें</button></div>` : ""}
     <div class="mtabs">
       ${[["all", "सभी"], ["notes", "📗 Notes"], ["pdfs", "📕 PDFs / Files"], ["videos", "🎬 Videos"]].map(([k, l]) =>
         `<button class="chip ${matFilter === k ? "on" : ""}" data-mf="${k}">${l}</button>`).join("")}
@@ -1005,8 +1070,14 @@ async function renderStudy() {
 
   const noteById = (id) => (notes || []).find(n => n.id === id);
   const matById = (id) => (materials || []).find(m => m.id === id);
-  $app.querySelectorAll("[data-cls]").forEach(b => b.onclick = () => { studyClassId = b.dataset.cls ? +b.dataset.cls : null; renderStudy(); });
-  $app.querySelectorAll("[data-mf]").forEach(b => b.onclick = () => { matFilter = b.dataset.mf; renderStudy(); });
+  $app.querySelectorAll("[data-cls]").forEach(b => b.onclick = () => { studyClassId = b.dataset.cls ? +b.dataset.cls : null; studyLesson = null; renderStudy(); });
+  $app.querySelectorAll("[data-mf]").forEach(b => b.onclick = () => { matFilter = b.dataset.mf; studyLesson = null; renderStudy(); });
+  const sq = document.getElementById("studyQ");
+  const applyQ = () => { studyQuery = (sq?.value || "").trim(); renderStudy(); };
+  document.getElementById("studyGo")?.addEventListener("click", applyQ);
+  sq?.addEventListener("keydown", (e) => { if (e.key === "Enter") applyQ(); });
+  document.getElementById("studyClear")?.addEventListener("click", () => { studyQuery = ""; renderStudy(); });
+  $app.querySelectorAll("[data-lesson]").forEach(b => b.onclick = () => { studyLesson = +b.dataset.lesson; renderStudy(); });
   $app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
     const [type, id] = b.dataset.open.split(":");
     if (type === "note") openStoredFile("notes-files", noteById(+id).file_path);
@@ -1401,7 +1472,7 @@ function renderRun() {
       ${test.instant_feedback
         ? `<p class="muted" style="margin-top:2px">⚡ <b>Practice Mode:</b> option चुनते ही ✅ सही / ❌ ग़लत + explanation दिखेगा। पहला click ही आपका उत्तर होगा — बाद में बदलेगा नहीं।</p>`
         : `<p class="muted" style="margin-top:2px">एक उत्तर चुनें — वह सिर्फ़ save होगा। ✅ सही / ❌ ग़लत और 💡 explanation, submit के बाद result में मिलेगा।</p>`}
-      <div style="font-size:17px; font-weight:700; line-height:1.5; margin:12px 0">${esc(q.question_text)}</div>
+      <div style="font-size:17.5px; font-weight:700; line-height:1.55; margin:14px 0"><span class="qno">Q${run.idx + 1}.</span> ${esc(q.question_text)}</div>
       ${body}
       <div class="row" style="margin-top:14px">
         ${fb ? "" : `<button class="light" id="clearQ">🧹 उत्तर हटाएँ</button>`}
@@ -1607,7 +1678,10 @@ async function renderMore() {
         ${isStaff() ? `<div class="qa" data-nav="manage"><div class="qi" style="background:#e8f1fe">🛠️</div><div class="ql">Manage</div></div>` : ""}
         ${profile.role === "admin" ? `<div class="qa" data-nav="users"><div class="qi" style="background:#fff4cf">👥</div><div class="ql">Users</div></div>` : ""}
       </div>
-      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
+      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>
+      <div class="menu-item" data-nav="home" style="cursor:pointer"><span class="mi">📈</span>मेरी Progress<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="doubts" style="cursor:pointer"><span class="mi">❓</span>मेरे Doubts<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="notif" style="cursor:pointer"><span class="mi">🔔</span>मेरी सूचनाएँ<span class="arr">›</span></div>` : ""}
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
       <div class="menu-item"><span class="mi">📱</span>Platform<span class="arr">Target Academy v2</span></div>
