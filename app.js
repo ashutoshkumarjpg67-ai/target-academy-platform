@@ -184,7 +184,7 @@ function renderAuth(mode = "login") {
   $tabbar.classList.add("hidden"); $logout.classList.add("hidden"); if ($bell) $bell.classList.add("hidden");
   $app.innerHTML = `
     <div class="hero">
-      <img src="icon.svg" alt="Target Academy logo" class="auth-logo" data-zoom="icon.svg">
+      <img src="icon.svg?v=31" alt="Target Academy logo" class="auth-logo" data-zoom="icon.svg?v=31">
       <span class="badge">ADMISSION OPEN</span>
       <h1>Learning for every home 📚</h1>
       <p>Target Academy's notes, study material and online tests — now in one app. Log in and start studying for your class.</p>

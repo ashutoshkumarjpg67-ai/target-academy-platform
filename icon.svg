@@ -1,4 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect x="6" y="6" width="500" height="500" rx="64" fill="#0b2a5b" stroke="#c9a227" stroke-width="12"/>
-  <text x="256" y="338" font-family="Arial, Helvetica, sans-serif" font-size="215" font-weight="bold" fill="#ffd700" text-anchor="middle">TA</text>
+  <defs>
+    <linearGradient id="navyGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17457f"/>
+      <stop offset=".55" stop-color="#0e2f5e"/>
+      <stop offset="1" stop-color="#081c3a"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd23e"/>
+      <stop offset="1" stop-color="#f2b705"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="url(#navyGrad)"/>
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="url(#goldGrad)" stroke-width="10"/>
+  <ellipse cx="256" cy="80" rx="180" ry="70" fill="#ffffff" opacity=".04"/>
+  <!-- graduation cap -->
+  <polygon points="256,128 462,210 256,290 50,210" fill="url(#goldGrad)"/>
+  <polygon points="256,290 462,210 256,248 50,210" fill="#d99a00" opacity=".45"/>
+  <path d="M186 248 L256 280 L326 248 V278 C326 304 293 320 256 320 C219 320 186 304 186 278 Z" fill="#f7f9ff"/>
+  <circle cx="256" cy="210" r="14" fill="#0b2a5b"/>
+  <path d="M462 210 V280" stroke="#f2b705" stroke-width="18" stroke-linecap="round" fill="none"/>
+  <circle cx="462" cy="300" r="19" fill="url(#goldGrad)"/>
+  <!-- open book -->
+  <g transform="translate(0,-6)">
+    <path d="M256 398 C228 378 182 372 140 380 V450 C182 442 228 448 256 466 C284 448 330 442 372 450 V380 C330 372 284 378 256 398 Z" fill="#ffffff"/>
+    <path d="M256 398 V466" stroke="#c8d4ea" stroke-width="7"/>
+    <path d="M170 404 C196 398 222 402 240 412" stroke="#c8d4ea" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M272 412 C290 402 316 398 342 404" stroke="#c8d4ea" stroke-width="7" fill="none" stroke-linecap="round"/>
+  </g>
 </svg>

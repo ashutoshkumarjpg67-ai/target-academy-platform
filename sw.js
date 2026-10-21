@@ -10,8 +10,8 @@ self.addEventListener("push", (e) => {
   try { if (e.data) d = Object.assign(d, e.data.json()); } catch (_) { /* keep defaults */ }
   e.waitUntil(self.registration.showNotification(d.title, {
     body: d.body,
-    icon: "icon.svg",
-    badge: "icon.svg",
+    icon: "icon.svg?v=31",
+    badge: "icon.svg?v=31",
     data: { url: d.url },
   }));
 });
