@@ -25,7 +25,14 @@ async function notifyUsers(userIds, kind, title, body) {
   try {
     const rows = [...new Set(userIds || [])].filter(id => id && (!me || id !== me.id))
       .map(user_id => ({ user_id, kind, title, body: body || null }));
-    if (rows.length) await sb.from("notifications").insert(rows);
+    if (rows.length) {
+      await sb.from("notifications").insert(rows);
+      // Phone push as well (fire-and-forget): reaches students even
+      // when the app is closed, if they enabled phone notifications.
+      try {
+        sb.functions.invoke("push", { body: { action: "send", user_ids: rows.map(r => r.user_id), title, body: body || "" } }).then(() => {}, () => {});
+      } catch (_) { /* push must never break the main action */ }
+    }
   } catch (_) { /* notifications must never break the main action */ }
 }
 async function notifyClassStudents(classId, kind, title, body) {
@@ -39,6 +46,43 @@ async function refreshBell() {
   const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", me.id).eq("is_read", false);
   if (count) { badge.textContent = count > 99 ? "99+" : count; badge.classList.remove("hidden"); }
   else badge.classList.add("hidden");
+}
+
+/* ---------------- Phone push (Web Push, v20) ---------------- */
+if ("serviceWorker" in navigator) { navigator.serviceWorker.register("sw.js").catch(() => {}); }
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+function urlB64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function savePushSub(sub) {
+  const j = sub.toJSON();
+  if (!j.endpoint || !j.keys) return;
+  await sb.from("push_subscriptions").upsert(
+    { user_id: me.id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_agent: navigator.userAgent.slice(0, 200) },
+    { onConflict: "endpoint" });
+}
+async function syncPush() {
+  try {
+    if (!pushSupported() || Notification.permission !== "granted") return;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { data } = await sb.functions.invoke("push", { body: { action: "config" } });
+      if (!data?.publicKey) return;
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(data.publicKey) });
+    }
+    await savePushSub(sub);
+  } catch (_) { /* push is optional; never block the app */ }
+}
+async function enablePush() {
+  if (!pushSupported()) { toast("इस browser में phone सूचना नहीं चलती — Chrome से खोलें"); return; }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") { toast("सूचना की अनुमति नहीं मिली — browser settings में Allow करें"); return; }
+  await syncPush();
+  toast("📲 Phone सूचना चालू हो गई!");
+  if (tab === "notif") renderNotifs();
 }
 const roleName = (r) => ({admin:"Admin • व्यवस्थापक", teacher:"Teacher • शिक्षक", student:"Student • छात्र", parent:"Parent • अभिभावक"}[r] || r);
 
@@ -103,6 +147,7 @@ async function boot() {
   myClasses = cls || [];
   $logout.classList.remove("hidden");
   if ($bell) { $bell.classList.remove("hidden"); $bell.onclick = () => { tab = "notif"; renderShell(); }; refreshBell(); }
+  syncPush();
   renderShell();
 }
 $logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
@@ -1407,6 +1452,16 @@ async function renderNotifs() {
   const icons = { announcement: "📢", test: "📝", doubt: "❓", live: "📺", note: "📚", assignment: "📒", fee: "💰", result: "🏆" };
   const unread = (rows || []).filter(n => !n.is_read).length;
   $app.innerHTML = `
+    <div class="card"><h3 style="margin:0">📲 Phone पर सूचना</h3>
+      <p class="muted" style="margin:6px 0 0">चालू करने पर हर नई सूचना (notice, test, doubt का जवाब, live class) सीधे आपके phone पर आएगी — app बंद हो तब भी।</p>
+      ${pushSupported()
+        ? (Notification.permission === "granted"
+          ? `<p style="margin:10px 0 0">✅ इस phone पर सूचना चालू है।</p>`
+          : Notification.permission === "denied"
+            ? `<p style="margin:10px 0 0">⚠️ Browser ने सूचना रोक रखी है — Chrome की Site Settings में Notifications को Allow करें।</p>`
+            : `<button id="npBtn" style="margin-top:10px">📲 Phone सूचना चालू करें</button>`)
+        : `<p style="margin:10px 0 0">यह browser phone सूचना नहीं देता — app को Chrome में खोलें।</p>`}
+    </div>
     <div class="card"><h3 style="margin:0">🔔 मेरी सूचनाएँ ${unread ? `<span class="pill green">${unread} नई</span>` : ""}</h3>
       <p class="muted" style="margin:6px 0 0">Academy की हर नई जानकारी — notice, नए tests, doubt के जवाब — यहाँ मिलेगी।</p>
       ${unread ? `<button class="light" id="nReadAll" style="margin-top:10px">✓ सभी को पढ़ा हुआ mark करें</button>` : ""}
@@ -1419,6 +1474,8 @@ async function renderNotifs() {
         ${n.body ? `<p class="muted" style="margin:6px 0 0">${esc(n.body)}</p>` : ""}
         <div class="s muted" style="margin-top:6px">${new Date(n.created_at).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div>
       </div>`).join("") || `<div class="card"><p class="muted">अभी कोई सूचना नहीं है।</p></div>`}`;
+  const npBtn = document.getElementById("npBtn");
+  if (npBtn) npBtn.onclick = enablePush;
   const allBtn = document.getElementById("nReadAll");
   if (allBtn) allBtn.onclick = async () => {
     await sb.from("notifications").update({ is_read: true }).eq("user_id", me.id).eq("is_read", false);
