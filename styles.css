@@ -375,3 +375,43 @@ body.auth-mode #sidebar{display:none !important}
 .lightbox{position:fixed;inset:0;background:rgba(4,12,30,.93);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;cursor:zoom-out}
 .lightbox img{max-width:94vw;max-height:88vh;border-radius:14px;border:3px solid var(--gold);object-fit:contain;background:#0b2a5b}
 .lightbox .lb-x{position:absolute;top:14px;right:16px;width:42px;height:42px;border-radius:50%;border:none;background:rgba(255,255,255,.14);color:#fff;font-size:19px;cursor:pointer}
+
+/* ---------- v27: refinement pass (premium navy/gold finish) ---------- */
+:root{
+  --shadow:0 14px 34px rgba(8,28,58,.13), 0 3px 8px rgba(8,28,58,.07);
+  --shadow-sm:0 5px 16px rgba(8,28,58,.09), 0 1px 3px rgba(8,28,58,.05);
+}
+html{scroll-behavior:smooth}
+body{-webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility}
+.card{background:linear-gradient(180deg,#ffffff 0%,#fcfdff 100%)}
+.card h3{font-size:17px; letter-spacing:.1px; padding-left:11px; border-left:4px solid var(--gold)}
+button{
+  background:linear-gradient(140deg,var(--navy3),var(--navy2) 55%,var(--navy));
+  box-shadow:0 6px 16px rgba(8,28,58,.28);
+}
+button:disabled{opacity:.45; box-shadow:none; cursor:not-allowed}
+@media (hover:hover){
+  button:hover{transform:translateY(-1px)}
+  .qa:hover{transform:translateY(-2px); box-shadow:var(--shadow)}
+  .option:hover{border-color:#b9c9e6}
+}
+input::placeholder,textarea::placeholder{color:#93a5bf}
+:focus-visible{outline:2.5px solid var(--gold); outline-offset:2px}
+#tabbar{border-top:2.5px solid rgba(242,183,5,.55)}
+#tabbar button.active{
+  background:linear-gradient(140deg,var(--navy2),var(--navy)); color:#fff;
+  box-shadow:0 6px 14px rgba(8,28,58,.3);
+}
+#sidenav button.active{
+  background:linear-gradient(120deg,var(--gold2),var(--gold)); color:var(--navy);
+  box-shadow:0 6px 16px rgba(242,183,5,.35);
+}
+.stat{box-shadow:var(--shadow-sm)}
+.stat .si{box-shadow:inset 0 0 0 1px rgba(8,28,58,.05), 0 2px 6px rgba(8,28,58,.07)}
+.loading{animation:loadpulse 1.15s ease-in-out infinite}
+@keyframes loadpulse{50%{opacity:.45}}
+.menu-item:active,.frow:active{background:#f6f9ff}
+.option{transition:border-color .15s, background .15s, box-shadow .15s}
+::-webkit-scrollbar{width:9px; height:9px}
+::-webkit-scrollbar-thumb{background:#c3d0e4; border-radius:99px; border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
