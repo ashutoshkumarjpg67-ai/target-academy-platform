@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=4";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=5";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -426,7 +426,18 @@ async function renderUsers() {
   const enrOf = (uid) => (enr || []).filter(e => e.user_id === uid).map(e => e.class_id);
   const className = (id) => (myClasses.find(c => c.id === id) || {}).name || "?";
 
-  $app.innerHTML = `<div class="card"><h3>👥 सभी Users (${(users || []).length})</h3>
+  $app.innerHTML = `
+    <div class="card"><h3>➕ नया Student ख़ुद जोड़ें</h3>
+      <p>Student को sign up करने की ज़रूरत नहीं — आप ही खाता बनाकर login की जानकारी उसे दे दीजिए।</p>
+      <label>Student का नाम</label><input id="ns_name" placeholder="जैसे: Rahul Kumar">
+      <label>Email (student या parent का)</label><input id="ns_email" type="email" placeholder="student@example.com">
+      <label>Password (आप तय करें — student को यही बताना होगा)</label><input id="ns_pass" type="text" placeholder="कम से कम 6 अक्षर, जैसे: rahul123">
+      <label>Class में जोड़ें</label><select id="ns_class"><option value="">— बाद में जोड़ूँगा —</option>${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+      <div class="error" id="ns_err"></div>
+      <div id="ns_done"></div>
+      <button class="gold" id="ns_add" style="width:100%">Student बनाएँ</button>
+    </div>
+    <div class="card"><h3>👥 सभी Users (${(users || []).length})</h3>
     <p>Role बदलना और student को class में जोड़ना यहीं से होगा।</p>
     ${(users || []).map(u => `
       <div class="item">
@@ -457,6 +468,41 @@ async function renderUsers() {
     if (error) return toast("Error: " + error.message);
     toast("Student class में जुड़ गया 🎓"); renderUsers();
   });
+  document.getElementById("ns_add").onclick = async () => {
+    const err = document.getElementById("ns_err");
+    const done = document.getElementById("ns_done");
+    err.textContent = ""; done.innerHTML = "";
+    const name = document.getElementById("ns_name").value.trim();
+    const email = document.getElementById("ns_email").value.trim();
+    const pass = document.getElementById("ns_pass").value;
+    const classId = document.getElementById("ns_class").value;
+    if (!name || !email || !pass) { err.textContent = "नाम, email और password — तीनों भरें"; return; }
+    if (pass.length < 6) { err.textContent = "Password कम से कम 6 अक्षरों का रखें"; return; }
+    const btn = document.getElementById("ns_add");
+    btn.disabled = true; btn.textContent = "बन रहा है…";
+    try {
+      // Separate throwaway client so the admin's own login session is untouched.
+      const sbNew = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, storageKey: "sb-student-create" } });
+      const { data, error } = await sbNew.auth.signUp({ email, password: pass, options: { data: { full_name: name } } });
+      await sbNew.auth.signOut();
+      if (error) throw error;
+      const newId = data?.user?.id;
+      if (!newId) throw new Error("खाता नहीं बना — शायद यह email पहले से मौजूद है");
+      if (classId) {
+        const { error: e2 } = await sb.from("enrollments").insert({ user_id: newId, class_id: +classId });
+        if (e2) throw e2;
+      }
+      done.innerHTML = `<div class="card" style="background:#e2f4ec; border-color:#bfe6d2; margin:10px 0">
+        <b>✅ Student बन गया!</b><br>ये जानकारी student को दे दीजिए —<br>
+        📧 Email: <b>${esc(email)}</b><br>🔑 Password: <b>${esc(pass)}</b><br>
+        🔗 Link: ashutoshkumarjpg67-ai.github.io/target-academy-platform</div>`;
+      toast("Student बन गया 🎓");
+      setTimeout(renderUsers, 4000);
+    } catch (e) {
+      err.textContent = e.message;
+      btn.disabled = false; btn.textContent = "Student बनाएँ";
+    }
+  };
 }
 
 /* ---------------- Study: Notes + Materials ---------------- */
