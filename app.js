@@ -12,6 +12,21 @@ let me = null;        // auth user
 let profile = null;   // profiles row (role, full_name...)
 let myClasses = [];   // classes visible to me
 let tab = "home";
+let lastTab = null, navFromPop = false, curView = "tab"; // back-button (history) support
+let revState = null; // result-review paging state
+const REV_PAGE = 20;
+
+window.addEventListener("popstate", (e) => {
+  if (!profile) return;
+  if (run) {
+    if (confirm("Test चल रहा है — छोड़कर Tests सूची पर जाएँ? Attempt save रहेगा, बाद में 'जारी रखें' से फिर शुरू कर सकेंगे।")) {
+      clearInterval(run.timer); run = null; tab = "tests"; navFromPop = true; renderShell();
+    } else { try { history.pushState({ view: "run" }, ""); } catch (err) {} }
+    return;
+  }
+  if (curView === "result" || curView === "preview") { tab = "tests"; navFromPop = true; renderShell(); return; }
+  tab = (e.state && e.state.tab) || "home"; navFromPop = true; renderShell();
+});
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function toast(msg, ms = 2600) {
@@ -232,6 +247,9 @@ $logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
 /* ---------------- Shell + tabs ---------------- */
 function renderShell() {
+  if (lastTab === null) { try { history.replaceState({ tab }, ""); } catch (e) {} }
+  else if (tab !== lastTab && !navFromPop) { try { history.pushState({ tab }, ""); } catch (e) {} }
+  lastTab = tab; navFromPop = false; curView = "tab";
   const tabs = [
     { id: "home", ic: "🏠", label: "Home" },
     { id: "study", ic: "📚", label: "Notes" },
@@ -1108,9 +1126,7 @@ async function renderTests() {
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
           : t.status === "published" ? (live
             ? `<button class="gold small" data-tstart="${t.id}">▶ जारी रखें</button>`
-            : submitted.length
-              ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">Result देखें</button>`
-              : `<button class="gold small" data-tstart="${t.id}">▶ Test शुरू करें</button>`) : ""}
+            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 Result देखें</button>` : ""}${submitted.length < (t.max_attempts || 1) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? `🔁 फिर से Test दें (${submitted.length}/${t.max_attempts || 1})` : "▶ Test शुरू करें"}</button>` : ""}`) : ""}
       </div></div>`;
   };
   const groupedTests = () => {
@@ -1254,9 +1270,11 @@ async function renderTestResults(testId) {
 async function previewTest(test) {
   if (!test) return;
   $app.innerHTML = `<div class="loading">Test खुल रहा है…</div>`;
+  curView = "preview";
+  try { history.pushState({ view: "preview" }, ""); } catch (e) {}
   const { data: tqs } = await sb.from("test_questions").select("question_id, sort_order").eq("test_id", test.id).order("sort_order");
   const ids = (tqs || []).map(x => x.question_id);
-  if (!ids.length) { $app.innerHTML = `<div class="card"><p>इस test में अभी कोई सवाल नहीं है।</p><button class="light" id="pv_back">← Tests पर वापस</button></div>`; document.getElementById("pv_back").onclick = renderTests; return; }
+  if (!ids.length) { $app.innerHTML = `<div class="card"><p>इस test में अभी कोई सवाल नहीं है।</p><button class="light" id="pv_back">← Tests पर वापस</button></div>`; document.getElementById("pv_back").onclick = () => { tab = "tests"; renderShell(); }; return; }
   const { data: qs } = await sb.from("questions").select("*").in("id", ids);
   const byId = {}; (qs || []).forEach(q => byId[q.id] = q);
   const ordered = ids.map(id => byId[id]).filter(Boolean);
@@ -1279,8 +1297,8 @@ async function previewTest(test) {
       </div>`;
     }).join("")}
     <div class="card"><button class="light" id="pv_back2" style="width:100%">← Tests पर वापस</button></div>`;
-  document.getElementById("pv_back").onclick = renderTests;
-  document.getElementById("pv_back2").onclick = renderTests;
+  document.getElementById("pv_back").onclick = () => { tab = "tests"; renderShell(); };
+  document.getElementById("pv_back2").onclick = () => { tab = "tests"; renderShell(); };
   window.scrollTo({ top: 0 });
 }
 
@@ -1312,6 +1330,8 @@ async function startTest(test, myAttempts) {
       if (data && data[0]) run.feedback.set(x.question_id, data[0]);
     }));
   }
+  curView = "run";
+  try { history.pushState({ view: "run" }, ""); } catch (e) {}
   renderRun();
   run.timer = setInterval(tickTimer, 500); tickTimer();
 }
@@ -1430,12 +1450,65 @@ async function finishTest(auto) {
 }
 
 /* ----- Result + review ----- */
+function reviewRowHTML(r) {
+  const mine = Array.isArray(r.my_answer) ? r.my_answer[0] : null;
+  const right = Array.isArray(r.correct_answer) ? r.correct_answer[0] : null;
+  const opts = Array.isArray(r.options) ? r.options : [];
+  return `<div style="padding:14px 0; border-bottom:1px solid var(--line)">
+    <div style="font-weight:700">Q${r._i + 1}. ${esc(r.question_text)}</div>
+    <div style="margin-top:6px">
+      ${r.is_correct === null ? `<span class="pill gold">Teacher जाँचेंगे</span>` : r.is_correct ? `<span class="pill green">✅ सही • +${r.marks_awarded} अंक</span>` : `<span class="pill red">❌ ग़लत • ${r.marks_awarded} अंक</span>`}
+    </div>
+    ${opts.length ? opts.map(o => `<div class="option ${String(o.key) === String(right) ? "right" : String(o.key) === String(mine) ? "wrong" : ""}" style="cursor:default"><span class="k">${esc(o.key)}</span>${esc(o.text)}</div>`).join("")
+      : `<div class="s" style="margin-top:6px">आपका उत्तर: <b>${mine === null || mine === undefined ? "— (नहीं दिया)" : esc(mine)}</b><br>सही उत्तर: <b>${esc(right ?? "—")}</b></div>`}
+    ${r.explanation ? `<div class="expl-box">💡 <b>Explanation:</b> ${esc(r.explanation)}</div>` : ""}
+  </div>`;
+}
+function drawReview() {
+  const box = document.getElementById("revBox");
+  if (!box || !revState) return;
+  const { rows } = revState;
+  const f = revState.filter;
+  const filtered = rows.filter(r => f === "all" ? true : f === "right" ? r.is_correct === true : f === "wrong" ? r.is_correct === false : r.is_correct === null);
+  const pages = Math.max(1, Math.ceil(filtered.length / REV_PAGE));
+  if (revState.page >= pages) revState.page = pages - 1;
+  if (revState.page < 0) revState.page = 0;
+  const slice = filtered.slice(revState.page * REV_PAGE, revState.page * REV_PAGE + REV_PAGE);
+  const cnt = (fn) => rows.filter(fn).length;
+  box.innerHTML = `
+    <div class="card"><h3>📖 उत्तरों की समीक्षा</h3>
+      <div class="mtabs">
+        <button class="chip ${f === "all" ? "on" : ""}" data-rf="all">सभी (${rows.length})</button>
+        <button class="chip ${f === "right" ? "on" : ""}" data-rf="right">✅ सही (${cnt(r => r.is_correct === true)})</button>
+        <button class="chip ${f === "wrong" ? "on" : ""}" data-rf="wrong">❌ ग़लत (${cnt(r => r.is_correct === false)})</button>
+        ${cnt(r => r.is_correct === null) ? `<button class="chip ${f === "pending" ? "on" : ""}" data-rf="pending">⏳ जाँच बाकी (${cnt(r => r.is_correct === null)})</button>` : ""}
+      </div>
+      ${slice.map(reviewRowHTML).join("") || `<p class="muted">इस filter में कोई सवाल नहीं है।</p>`}
+      <div class="row" style="margin-top:12px; justify-content:space-between; align-items:center">
+        <button class="light" data-rp="-1" ${revState.page === 0 ? "disabled" : ""}>← पिछले</button>
+        <span class="muted">Page ${revState.page + 1} / ${pages} • ${filtered.length} सवाल</span>
+        <button class="light" data-rp="1" ${revState.page >= pages - 1 ? "disabled" : ""}>अगले →</button>
+      </div>
+    </div>`;
+  box.querySelectorAll("[data-rf]").forEach(b => b.onclick = () => { revState.filter = b.dataset.rf; revState.page = 0; drawReview(); });
+  box.querySelectorAll("[data-rp]").forEach(b => b.onclick = () => { revState.page += +b.dataset.rp; drawReview(); box.scrollIntoView({ behavior: "smooth", block: "start" }); });
+}
 async function showResult(attemptId, test) {
   tab = "tests";
+  curView = "result";
+  try { history.pushState({ view: "result" }, ""); } catch (e) {}
   $app.innerHTML = `<div class="loading">Result लोड हो रहा है…</div>`;
   $tabbar.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === "tests"));
   const { data: attempt } = await sb.from("test_attempts").select("*").eq("id", attemptId).single();
   const { data: review, error } = await sb.rpc("get_attempt_review", { p_attempt_id: attemptId });
+  let myTestAttempts = [];
+  if (test && !isStaff()) {
+    const { data: atts } = await sb.from("test_attempts").select("*").eq("test_id", test.id).eq("student_id", me.id).order("started_at", { ascending: false });
+    myTestAttempts = atts || [];
+  }
+  const submittedCount = myTestAttempts.filter(a => a.status !== "in_progress").length;
+  const canRestart = !!test && !isStaff() && submittedCount < (test.max_attempts || 1);
+  revState = error ? null : { rows: (review || []).map((r, i) => ({ ...r, _i: i })), filter: "all", page: 0 };
   const pct = attempt ? +attempt.percent || 0 : 0;
   const C = 2 * Math.PI * 44;
   $app.innerHTML = `
@@ -1452,25 +1525,19 @@ async function showResult(attemptId, test) {
         </div>
       </div>
     </div>
+    <div class="row" style="margin:12px 0">
+      <button class="light" id="resBack">← Tests पर वापस</button>
+      ${canRestart ? `<button class="gold" id="resRestart">🔁 फिर से Test दें (${submittedCount}/${test.max_attempts || 1} कोशिशें हो चुकीं)</button>` : ""}
+    </div>
     ${error ? `<div class="card"><p>विस्तृत review अभी उपलब्ध नहीं है (${esc(error.message)})। Result ऊपर दिखा दिया गया है।</p></div>`
-    : `<div class="card"><h3>📖 उत्तरों की समीक्षा</h3>
-      ${(review || []).map((r, i) => {
-        const mine = Array.isArray(r.my_answer) ? r.my_answer[0] : null;
-        const right = Array.isArray(r.correct_answer) ? r.correct_answer[0] : null;
-        const opts = Array.isArray(r.options) ? r.options : [];
-        const optText = (k) => (opts.find(o => o.key === k)?.text ?? k);
-        return `<div style="padding:14px 0; border-bottom:1px solid var(--line)">
-          <div style="font-weight:700">Q${i + 1}. ${esc(r.question_text)}</div>
-          <div style="margin-top:6px">
-            ${r.is_correct === null ? `<span class="pill gold">Teacher जाँचेंगे</span>` : r.is_correct ? `<span class="pill green">✅ सही • +${r.marks_awarded} अंक</span>` : `<span class="pill red">❌ ग़लत • ${r.marks_awarded} अंक</span>`}
-          </div>
-          ${opts.length ? opts.map(o => `<div class="option ${String(o.key) === String(right) ? "right" : String(o.key) === String(mine) ? "wrong" : ""}" style="cursor:default"><span class="k">${esc(o.key)}</span>${esc(o.text)}</div>`).join("")
-            : `<div class="s" style="margin-top:6px">आपका उत्तर: <b>${mine === null || mine === undefined ? "— (नहीं दिया)" : esc(mine)}</b><br>सही उत्तर: <b>${esc(right ?? "—")}</b></div>`}
-          ${r.explanation ? `<div class="expl-box">💡 <b>Explanation:</b> ${esc(r.explanation)}</div>` : ""}
-        </div>`;
-      }).join("")}
-    </div>`}
-    <button class="light" style="width:100%" onclick="location.reload()">← Tests पर वापस</button>`;
+    : `<div id="revBox"></div>`}
+    <button class="light" id="resBack2" style="width:100%">← Tests पर वापस</button>`;
+  const goBack = () => { tab = "tests"; renderShell(); };
+  document.getElementById("resBack").onclick = goBack;
+  document.getElementById("resBack2").onclick = goBack;
+  if (canRestart) document.getElementById("resRestart").onclick = () => startTest(test, myTestAttempts);
+  if (!error) drawReview();
+  window.scrollTo({ top: 0 });
 }
 
 /* ---------------- More / Profile ---------------- */
