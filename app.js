@@ -501,6 +501,8 @@ async function renderFees() {
     const rows = studsInClass.map(sid => ({ student_id: sid, class_id: cid, fee_type: type, period, amount, due_date: due, recorded_by: me.id }));
     const { error } = await sb.from("fee_records").upsert(rows, { onConflict: "student_id,fee_type,period", ignoreDuplicates: true });
     if (error) { err.textContent = error.message; return; }
+    notifyUsers(studsInClass, "fee", "🧾 नई Fee बनी",
+      `${type} fee (${period}): ₹${amount}${due ? ` • जमा करने की अंतिम तारीख़: ${due}` : ""} — समय पर जमा कर दें।`);
     toast(`Fee बन गई — ${studsInClass.length} students के लिए 🧾`); renderFees();
   };
   host.querySelectorAll("[data-fpay]").forEach(b => b.onclick = async () => {
@@ -512,6 +514,9 @@ async function renderFees() {
     const status = paid >= +rec.amount ? "paid" : "partial";
     const { error } = await sb.from("fee_records").update({ paid_amount: paid, status, updated_at: new Date().toISOString() }).eq("id", +id);
     if (error) return toast("Error: " + error.message);
+    const dueLeft = +rec.amount - paid;
+    notifyUsers([rec.student_id], "fee", "💰 Fee जमा हो गई",
+      `आपकी ${rec.fee_type} fee (${rec.period}) के ₹${v} जमा हो गए। कुल जमा: ₹${paid} / ₹${rec.amount}${dueLeft > 0 ? ` • बकाया: ₹${dueLeft}` : " • पूरी fee जमा हो गई ✅"}`);
     toast("Payment दर्ज हो गया ✅"); renderFees();
   });
 }
@@ -692,6 +697,9 @@ async function renderUsers() {
     if (!sel.value) return;
     const { error } = await sb.from("enrollments").insert({ user_id: sel.dataset.enroll, class_id: +sel.value });
     if (error) return toast("Error: " + error.message);
+    const { data: cls } = await sb.from("classes").select("name").eq("id", +sel.value).single();
+    notifyUsers([sel.dataset.enroll], "admission", "✅ Admission हो गया",
+      `आपको ${cls?.name || "class"} में दाख़िला मिल गया है। अब Notes, Tests और Homework आपको इसी app में मिलेंगे। 🎓`);
     toast("Student class में जुड़ गया 🎓"); renderUsers();
   });
   $app.querySelectorAll("[data-deluser]").forEach(b => b.onclick = async () => {
@@ -766,6 +774,9 @@ async function renderUsers() {
       };
       const { error: e3 } = await sb.from("profiles").update(details).eq("id", newId);
       if (e3) throw e3;
+      const { data: clsN } = classId ? await sb.from("classes").select("name").eq("id", +classId).single() : { data: null };
+      notifyUsers([newId], "welcome", "🎉 Target Academy में स्वागत है!",
+        `आपका खाता बन गया है${clsN?.name ? ` और आपको ${clsN.name} में दाख़िला मिल गया है` : ""}। यहाँ Notes, Tests, Homework और Fees — सब एक ही जगह मिलेगा। पढ़ाई के लिए शुभकामनाएँ! 📚`);
       done.innerHTML = `<div class="card" style="background:#e2f4ec; border-color:#bfe6d2; margin:10px 0">
         <b>✅ Student बन गया!</b><br>ये जानकारी student को दे दीजिए —<br>
         📧 Email: <b>${esc(email)}</b><br>🔑 Password: <b>${esc(pass)}</b><br>
@@ -1449,7 +1460,7 @@ boot();
 /* ---------------- Notifications / Live / Leaderboard ---------------- */
 async function renderNotifs() {
   const { data: rows } = await sb.from("notifications").select("*").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50);
-  const icons = { announcement: "📢", test: "📝", doubt: "❓", live: "📺", note: "📚", assignment: "📒", fee: "💰", result: "🏆" };
+  const icons = { announcement: "📢", test: "📝", doubt: "❓", live: "📺", note: "📚", assignment: "📒", fee: "💰", result: "🏆", admission: "✅", welcome: "🎉" };
   const unread = (rows || []).filter(n => !n.is_read).length;
   $app.innerHTML = `
     <div class="card"><h3 style="margin:0">📲 Phone पर सूचना</h3>
