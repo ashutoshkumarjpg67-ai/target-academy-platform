@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=12";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=13";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -1163,19 +1163,22 @@ function renderRun() {
       </div>
       <div class="prog" style="margin:12px 0 4px"><div style="width:${qs.length ? (answered / qs.length) * 100 : 0}%"></div></div>
       <p class="muted">सवाल ${run.idx + 1} / ${qs.length} • उत्तर दिए: ${answered} • यह सवाल ${q.marks} अंक का</p>
+      <p class="muted" style="margin-top:2px">एक उत्तर चुनें — वह सिर्फ़ save होगा। ✅ सही / ❌ ग़लत और 💡 explanation, submit के बाद result में मिलेगा।</p>
       <div style="font-size:17px; font-weight:700; line-height:1.5; margin:12px 0">${esc(q.question_text)}</div>
       ${body}
       <div class="row" style="margin-top:14px">
-        <button class="light" id="prevQ" ${run.idx === 0 ? "disabled" : ""}>← पिछला</button>
-        <button class="light" id="clearQ">🧹 Clear</button>
-        <button class="${run.review.has(q.question_id) ? "gold" : "light"}" id="revQ">🔖 Review</button>
-        <button class="light" id="nextQ" ${run.idx === qs.length - 1 ? "disabled" : ""}>अगला →</button>
+        <button class="light" id="clearQ">🧹 उत्तर हटाएँ</button>
+        <button class="${run.review.has(q.question_id) ? "gold" : "light"}" id="revQ">🔖 Review के लिए रखें</button>
       </div>
       <button class="gold" id="submitTest" style="width:100%; margin-top:12px">✅ Test Submit करें</button>
     </div>
-    <div class="card"><h3>सवाल सूची</h3>
+    <div class="card" style="margin-bottom:170px"><h3>सवाल सूची</h3>
       <div class="grid">${qs.map((x, i) => `<button class="${i === run.idx ? "cur" : ""} ${run.review.has(x.question_id) ? "review" : run.answers.has(x.question_id) && run.answers.get(x.question_id) !== null ? "done" : ""}" data-jump="${i}">${i + 1}</button>`).join("")}</div>
       <p class="muted">गहरा नीला = उत्तर दिया • पीला = review के लिए • घेरा = वर्तमान सवाल</p>
+    </div>
+    <div class="runnav">
+      <button class="light" id="prevQ" ${run.idx === 0 ? "disabled" : ""}>← पिछला सवाल</button>
+      <button class="gold" id="nextQ" ${run.idx === qs.length - 1 ? "disabled" : ""}>अगला सवाल →</button>
     </div>`;
   $app.querySelectorAll("[data-opt]").forEach(b => b.onclick = async () => {
     run.answers.set(q.question_id, [b.dataset.opt]); await saveAnswer(q.question_id); renderRun();
@@ -1236,15 +1239,17 @@ async function showResult(attemptId, test) {
       ${(review || []).map((r, i) => {
         const mine = Array.isArray(r.my_answer) ? r.my_answer[0] : null;
         const right = Array.isArray(r.correct_answer) ? r.correct_answer[0] : null;
-        const optText = (k) => (Array.isArray(r.options) ? (r.options.find(o => o.key === k)?.text ?? k) : k);
-        return `<div style="padding:12px 0; border-bottom:1px solid var(--line)">
+        const opts = Array.isArray(r.options) ? r.options : [];
+        const optText = (k) => (opts.find(o => o.key === k)?.text ?? k);
+        return `<div style="padding:14px 0; border-bottom:1px solid var(--line)">
           <div style="font-weight:700">Q${i + 1}. ${esc(r.question_text)}</div>
-          <div class="s" style="margin-top:5px">
-            आपका उत्तर: <b style="color:${r.is_correct ? "var(--ok)" : "var(--bad)"}">${mine === null || mine === undefined ? "— (नहीं दिया)" : esc(optText(mine))}</b>
-            ${r.is_correct === null ? `<span class="pill gold">Teacher जाँचेंगे</span>` : r.is_correct ? `<span class="pill green">+${r.marks_awarded}</span>` : `<span class="pill red">${r.marks_awarded}</span>`}<br>
-            सही उत्तर: <b>${esc(optText(right))}</b>
-            ${r.explanation ? `<br>💡 ${esc(r.explanation)}` : ""}
-          </div></div>`;
+          <div style="margin-top:6px">
+            ${r.is_correct === null ? `<span class="pill gold">Teacher जाँचेंगे</span>` : r.is_correct ? `<span class="pill green">✅ सही • +${r.marks_awarded} अंक</span>` : `<span class="pill red">❌ ग़लत • ${r.marks_awarded} अंक</span>`}
+          </div>
+          ${opts.length ? opts.map(o => `<div class="option ${String(o.key) === String(right) ? "right" : String(o.key) === String(mine) ? "wrong" : ""}" style="cursor:default"><span class="k">${esc(o.key)}</span>${esc(o.text)}</div>`).join("")
+            : `<div class="s" style="margin-top:6px">आपका उत्तर: <b>${mine === null || mine === undefined ? "— (नहीं दिया)" : esc(mine)}</b><br>सही उत्तर: <b>${esc(right ?? "—")}</b></div>`}
+          ${r.explanation ? `<div class="expl-box">💡 <b>Explanation:</b> ${esc(r.explanation)}</div>` : ""}
+        </div>`;
       }).join("")}
     </div>`}
     <button class="light" style="width:100%" onclick="location.reload()">← Tests पर वापस</button>`;

@@ -151,15 +151,31 @@ details.card summary::-webkit-details-marker{display:none}
   background:#fbfcfe; border:2px solid var(--line); border-radius:14px; color:var(--ink);
   font-weight:650; box-shadow:none; font-size:15px;
 }
-.option.sel{border-color:var(--ok); background:#e8f7f0; box-shadow:0 4px 12px rgba(14,159,110,.15)}
+.option.sel{border-color:var(--navy); background:#e9effc; box-shadow:0 4px 12px rgba(16,42,86,.18)}
 .option.right{border-color:var(--ok); background:#e6f7f0}
 .option.wrong{border-color:var(--bad); background:#fdecea}
 .option .k{
   display:inline-grid; place-items:center; width:25px; height:25px; border-radius:50%;
   background:var(--navy); color:#fff; font-size:12px; margin-right:9px; font-weight:800;
 }
-.option.sel .k{background:var(--ok); color:#fff}
-.option.sel::after{content:"✓"; float:right; color:var(--ok); font-weight:900}
+.option.sel .k{background:var(--gold); color:var(--navy)}
+.option.right::after{content:"✓ सही"; float:right; color:var(--ok); font-weight:900; font-size:13px}
+.option.wrong::after{content:"✗ आपका उत्तर"; float:right; color:var(--bad); font-weight:900; font-size:13px}
+.runnav{
+  position:fixed; left:10px; right:10px; z-index:21;
+  bottom:calc(88px + env(safe-area-inset-bottom));
+  display:flex; gap:8px; align-items:stretch;
+  background:#fff; border:1.5px solid var(--line); border-radius:16px;
+  padding:8px; box-shadow:0 10px 28px rgba(16,42,86,.22);
+}
+.runnav button{flex:1; padding:13px 6px; font-size:15px}
+.runnav button:disabled{opacity:.4}
+@media(min-width:900px){ .runnav{left:290px; right:24px; bottom:18px} }
+.expl-box{
+  margin-top:9px; padding:10px 12px; border-radius:12px;
+  background:#fff8e1; border:1.5px solid var(--gold); color:var(--ink);
+  font-size:14px; line-height:1.55; text-align:left;
+}
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(46px,1fr)); gap:8px}
 .grid button{padding:11px 0; background:#eef2fa; color:var(--navy); font-size:14px; box-shadow:none; border-radius:10px}
 .grid button.cur{outline:3px solid var(--gold); outline-offset:1px}
