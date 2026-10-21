@@ -1393,12 +1393,23 @@ async function renderDoubts() {
       </div>
       <p class="muted" style="margin:6px 0 0">${staffView ? `👤 ${esc(nameMap[d.student_id] || "Student")} • ` : ""}${d.class_id ? esc(clsName(d.class_id)) + " • " : ""}${d.subject_id ? esc(subName(d.subject_id)) + " • " : ""}${new Date(d.created_at).toLocaleString("hi-IN")}</p>
       ${d.answer_text ? `<div class="expl-box" style="margin-top:10px">💬 <b>जवाब${staffView && d.answered_by && nameMap[d.answered_by] ? ` — ${esc(nameMap[d.answered_by])}` : ""}:</b><br><span style="white-space:pre-wrap">${esc(d.answer_text)}</span>${d.answered_at ? `<br><span class="muted">${new Date(d.answered_at).toLocaleString("hi-IN")}</span>` : ""}</div>` : ""}
+      ${d.ai_answer ? `<div class="expl-box" style="margin-top:10px; background:#eef4ff; border-color:#9db9e8">🤖 <b>AI का जवाब:</b><br><span style="white-space:pre-wrap">${esc(d.ai_answer)}</span></div>`
+        : `<div style="margin-top:10px"><button class="light small" data-dai="${d.id}">🤖 AI से जवाब लें</button></div>`}
       ${staffView && d.status === "open" ? `
         <label style="margin-top:10px">अपना जवाब लिखें</label>
         <textarea id="da-${d.id}" placeholder="समझाकर जवाब लिखें…"></textarea>
         <div class="error" id="de-${d.id}"></div>
         <button class="gold" data-dans="${d.id}" style="width:100%">जवाब भेजें</button>` : ""}
     </div>`;
+
+  const wireAI = () => {
+    $app.querySelectorAll("[data-dai]").forEach(b => b.onclick = async () => {
+      b.disabled = true; b.textContent = "🤖 AI जवाब ला रहा है…";
+      const { error } = await sb.functions.invoke("answer-doubt", { body: { doubt_id: +b.dataset.dai } });
+      if (error) toast("AI जवाब अभी नहीं आ पाया — Sir जवाब देंगे");
+      renderDoubts();
+    });
+  };
 
   if (isStaff()) {
     const open = list.filter(d => d.status === "open");
@@ -1424,6 +1435,7 @@ async function renderDoubts() {
       if (error) { err.textContent = error.message; return; }
       toast("जवाब भेज दिया ✅"); renderDoubts();
     });
+    wireAI();
     return;
   }
 
@@ -1451,15 +1463,18 @@ async function renderDoubts() {
     if (!q) { err.textContent = "पहले अपना सवाल लिखें"; return; }
     const sid = document.getElementById("db_subject").value;
     const subj = mySubjs.find(s => s.id === +sid);
-    const { error } = await sb.from("doubts").insert({
+    const { data: nd, error } = await sb.from("doubts").insert({
       student_id: me.id,
       subject_id: subj ? subj.id : null,
       class_id: subj ? subj.class_id : (enrolledIds[0] || null),
       question_text: q,
-    });
+    }).select().single();
     if (error) { err.textContent = error.message; return; }
-    toast("Doubt भेज दिया ❓ — जवाब का इंतज़ार करें"); renderDoubts();
+    toast("Doubt भेज दिया ❓ — 🤖 AI जवाब ला रहा है…");
+    if (nd) { try { await sb.functions.invoke("answer-doubt", { body: { doubt_id: nd.id } }); } catch (_) { /* AI न आए तो Sir जवाब देंगे */ } }
+    renderDoubts();
   };
+  wireAI();
 }
 
 /* ---------------- Homework ---------------- */

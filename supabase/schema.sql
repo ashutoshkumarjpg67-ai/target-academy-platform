@@ -699,3 +699,134 @@ begin
     order by tq.sort_order;
 end;
 $$;
+
+-- ============================================================
+-- Patch (2026-10-21): full student profile + fees.
+-- ============================================================
+alter table public.profiles add column if not exists dob date;
+alter table public.profiles add column if not exists father_name text;
+alter table public.profiles add column if not exists mother_name text;
+alter table public.profiles add column if not exists admission_date date default current_date;
+alter table public.profiles add column if not exists address text;
+alter table public.profiles add column if not exists photo_path text;
+
+-- Students may update their OWN profile details (not their role).
+create policy profiles_self_update on public.profiles for update
+  using (id = auth.uid()) with check (id = auth.uid());
+create or replace function public.guard_profile_role()
+returns trigger language plpgsql security definer set search_path = public
+as $$
+begin
+  if auth.uid() is not null
+     and new.role is distinct from old.role
+     and coalesce(public.my_role(), 'student') <> 'admin' then
+    raise exception 'role can only be changed by admin';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists trg_guard_role on public.profiles;
+create trigger trg_guard_role before update on public.profiles
+  for each row execute function public.guard_profile_role();
+
+-- Fee plans (per class) + fee records (per student)
+create table public.fee_plans (
+  id bigint generated always as identity primary key,
+  class_id bigint not null references public.classes(id) on delete cascade,
+  fee_type text not null check (fee_type in ('monthly','yearly')),
+  amount numeric not null,
+  unique (class_id, fee_type)
+);
+create table public.fee_records (
+  id bigint generated always as identity primary key,
+  student_id uuid not null references public.profiles(id) on delete cascade,
+  class_id bigint references public.classes(id) on delete set null,
+  fee_type text not null check (fee_type in ('monthly','yearly','admission','exam','other')),
+  period text not null,
+  amount numeric not null,
+  paid_amount numeric not null default 0,
+  due_date date,
+  status text not null default 'unpaid' check (status in ('unpaid','partial','paid')),
+  note text,
+  recorded_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (student_id, fee_type, period)
+);
+alter table public.fee_plans enable row level security;
+alter table public.fee_records enable row level security;
+grant select, insert, update, delete on public.fee_plans to authenticated;
+grant select, insert, update, delete on public.fee_records to authenticated;
+create policy fee_plans_staff on public.fee_plans for all
+  using (public.is_staff()) with check (public.is_staff());
+create policy fee_records_staff on public.fee_records for all
+  using (public.is_staff()) with check (public.is_staff());
+create policy fee_records_own_read on public.fee_records for select
+  using (student_id = auth.uid()
+    or exists (select 1 from public.guardian_links g
+               where g.guardian_id = auth.uid() and g.student_id = fee_records.student_id));
+create index idx_fee_student on public.fee_records(student_id, status);
+
+-- Avatars bucket ('avatars', private; create in dashboard)
+create policy "avatar upload own" on storage.objects for insert to authenticated
+  with check (bucket_id = 'avatars' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_staff()));
+create policy "avatar update own" on storage.objects for update to authenticated
+  using (bucket_id = 'avatars' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_staff()))
+  with check (bucket_id = 'avatars' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_staff()));
+create policy "avatar read signed-in" on storage.objects for select to authenticated
+  using (bucket_id = 'avatars');
+
+-- Patch (2026-10-21): allow admins to DELETE profiles (was UPDATE-only,
+-- so app deletes silently affected 0 rows).
+create policy profiles_admin_delete on public.profiles for delete
+  using (public.my_role() = 'admin');
+-- ============================================================
+-- Patch (2026-10-21): Instant feedback / Practice mode for tests.
+-- Adds tests.instant_feedback + reveal_answer() RPC.
+-- The student's FIRST saved answer is what reveal judges;
+-- the app locks the options after the first click.
+-- ============================================================
+alter table public.tests add column if not exists instant_feedback boolean not null default false;
+
+create or replace function public.reveal_answer(p_attempt_id bigint, p_question_id bigint)
+returns table (correct_answer jsonb, explanation text, is_correct boolean)
+language plpgsql security definer set search_path = public
+as $$
+declare v_attempt public.test_attempts; v_q public.questions; v_ans jsonb;
+begin
+  select * into v_attempt from public.test_attempts where id = p_attempt_id;
+  if v_attempt is null then raise exception 'attempt not found'; end if;
+  if v_attempt.student_id <> auth.uid() and not public.is_staff() then
+    raise exception 'not your attempt';
+  end if;
+  select answer into v_ans from public.attempt_responses
+    where attempt_id = p_attempt_id and question_id = p_question_id;
+  if v_ans is null then raise exception 'answer first'; end if;
+  select * into v_q from public.questions where id = p_question_id;
+  if v_q is null then raise exception 'question not found'; end if;
+  return query select v_q.correct_answer, v_q.explanation,
+    case
+      when v_q.qtype in ('mcq_single','true_false')
+        then (v_q.correct_answer ->> 0) = (v_ans ->> 0)
+      else null
+    end;
+end;
+$$;
+
+-- Turn practice mode ON for all existing tests (the imported Class 12 tests).
+update public.tests set instant_feedback = true where instant_feedback = false;
+-- ============================================================
+-- Patch (2026-10-21): AI answers for doubts.
+-- ai_answer is written ONLY by the answer-doubt Edge Function
+-- (service role). Students/teachers keep using answer_text.
+-- ============================================================
+alter table public.doubts add column if not exists ai_answer text;
+alter table public.doubts add column if not exists ai_answered_at timestamptz;
+
+-- ============================================================
+-- PATCH (21 Oct 2026): service_role access for Edge Functions
+-- The answer-doubt function writes via the service-role key and
+-- hit "permission denied for table doubts" — grant it explicitly.
+-- ============================================================
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
