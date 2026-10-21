@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=10";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=11";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -950,6 +950,7 @@ async function renderTests() {
         <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
           <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
           ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
+              <button class="light small" data-tpreview="${t.id}">👁 देखें</button>
               <button class="light small" data-tresults="${t.id}">Results</button>
               <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Draft करें" : "Publish"}</button>
               <button class="danger small" data-tdel="${t.id}">✕</button></div>`
@@ -1008,6 +1009,7 @@ async function renderTests() {
       renderTests();
     });
     $app.querySelectorAll("[data-tresults]").forEach(b => b.onclick = () => renderTestResults(+b.dataset.tresults));
+    $app.querySelectorAll("[data-tpreview]").forEach(b => b.onclick = () => previewTest((tests || []).find(x => x.id === +b.dataset.tpreview)));
   }
   $app.querySelectorAll("[data-tstart]").forEach(b => b.onclick = () => {
     const t = (tests || []).find(x => x.id === +b.dataset.tstart);
@@ -1035,6 +1037,40 @@ async function renderTestResults(testId) {
     </div>`).join("") : `<p>अभी किसी student ने यह test नहीं दिया।</p>`}
   </div>`;
   host.scrollIntoView({ behavior: "smooth" });
+}
+
+/* ----- Staff preview of a test (questions + answers, no attempt created) ----- */
+async function previewTest(test) {
+  if (!test) return;
+  $app.innerHTML = `<div class="loading">Test खुल रहा है…</div>`;
+  const { data: tqs } = await sb.from("test_questions").select("question_id, sort_order").eq("test_id", test.id).order("sort_order");
+  const ids = (tqs || []).map(x => x.question_id);
+  if (!ids.length) { $app.innerHTML = `<div class="card"><p>इस test में अभी कोई सवाल नहीं है।</p><button class="light" id="pv_back">← Tests पर वापस</button></div>`; document.getElementById("pv_back").onclick = renderTests; return; }
+  const { data: qs } = await sb.from("questions").select("*").in("id", ids);
+  const byId = {}; (qs || []).forEach(q => byId[q.id] = q);
+  const ordered = ids.map(id => byId[id]).filter(Boolean);
+  $app.innerHTML = `
+    <div class="card">
+      <button class="light small" id="pv_back">← Tests पर वापस</button>
+      <h3 style="margin-top:10px">👁 ${esc(test.title)}</h3>
+      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${test.duration_minutes} मिनट • ${test.total_marks} अंक • ${ordered.length} सवाल • ${esc(test.status)}</p>
+      <p class="muted">यह सिर्फ़ जाँच के लिए है — यहाँ कोई attempt नहीं बनता और कोई result save नहीं होता। हरे रंग में सही उत्तर दिखा है।</p>
+    </div>
+    ${ordered.map((q, i) => {
+      const opts = Array.isArray(q.options) ? q.options : [];
+      const corr = Array.isArray(q.correct_answer) ? q.correct_answer.map(String) : [];
+      return `<div class="card">
+        <div class="t">प्रश्न ${i + 1}. ${esc(q.question_text)}</div>
+        <div class="s">${esc(q.qtype)} • ${q.marks} अंक</div>
+        ${opts.length ? opts.map(o => `<div style="margin-top:8px; padding:10px 12px; border-radius:10px; border:1.5px solid ${corr.includes(String(o.key)) ? "var(--green, #1a9e54)" : "#e3e8f2"}; background:${corr.includes(String(o.key)) ? "#e9f9f0" : "#fff"}"><b>${esc(o.key)}.</b> ${esc(o.text)} ${corr.includes(String(o.key)) ? "✅" : ""}</div>`).join("")
+          : (corr.length ? `<div style="margin-top:8px; padding:10px 12px; border-radius:10px; background:#e9f9f0; border:1.5px solid var(--green, #1a9e54)"><b>उत्तर:</b> ${esc(corr.join(", "))}</div>` : "")}
+        ${q.explanation ? `<p class="muted" style="margin-top:8px">💡 ${esc(q.explanation)}</p>` : ""}
+      </div>`;
+    }).join("")}
+    <div class="card"><button class="light" id="pv_back2" style="width:100%">← Tests पर वापस</button></div>`;
+  document.getElementById("pv_back").onclick = renderTests;
+  document.getElementById("pv_back2").onclick = renderTests;
+  window.scrollTo({ top: 0 });
 }
 
 /* ----- Taking a test ----- */
