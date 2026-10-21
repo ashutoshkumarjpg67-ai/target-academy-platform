@@ -918,7 +918,7 @@ async function renderStudy() {
       <div>
         <div class="t">${type === "material" ? (KIND_ICON[x.kind] || "📄") + " " : "📗 "}${esc(x.title)}</div>
         <div class="s">${esc(clsName(x.class_id))} • ${esc(subName(x.subject_id))}${x.chapter_id ? " • " + esc(chapName(x.chapter_id)) : ""}${x.difficulty ? " • " + esc(x.difficulty) : ""}${x.description ? "<br>" + esc(x.description) : ""}</div>
-        ${type === "note" && x.body ? `<div class="s" id="body-${x.id}" style="white-space:pre-wrap"></div>` : ""}
+        ${type === "note" && x.body ? `<div class="note-body" id="body-${x.id}"></div>` : ""}
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
         ${isStaff() ? `<span class="pill ${x.status === "published" ? "green" : ""}">${esc(x.status)}</span>` : ""}
