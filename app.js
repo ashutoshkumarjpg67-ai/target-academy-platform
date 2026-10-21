@@ -1842,23 +1842,67 @@ async function renderTop() {
   $app.querySelectorAll("[data-tclass]").forEach(b => b.onclick = () => { topClass = b.dataset.tclass; renderTop(); });
 }
 
+/* ---------------- Voice: speak-to-ask + listen-to-answer ---------------- */
+function voiceSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+let _rec = null;
+function startVoice(target, btn) {
+  if (!target) return;
+  if (_rec) { try { _rec.stop(); } catch (_) {} return; }
+  if (!voiceSupported()) { toast("Voice typing needs Chrome — please open the app in Chrome"); return; }
+  const SRC = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SRC(); _rec = rec;
+  rec.lang = "hi-IN"; rec.interimResults = true; rec.continuous = true;
+  let base = target.value.replace(/\s+$/, ""); if (base) base += " ";
+  const oldHTML = btn.innerHTML;
+  const done = () => { if (_rec === rec) _rec = null; btn.innerHTML = oldHTML; btn.classList.remove("listening"); };
+  btn.innerHTML = "🔴 Listening…"; btn.classList.add("listening");
+  rec.onresult = (e) => {
+    let fin = "", inter = "";
+    for (const r of e.results) { if (r.isFinal) fin += r[0].transcript; else inter += r[0].transcript; }
+    target.value = base + fin + inter;
+    if (fin) { base = target.value.replace(/\s+$/, ""); if (base) base += " "; }
+  };
+  rec.onerror = (e) => { if (e.error === "not-allowed" || e.error === "service-not-allowed") toast("Please allow microphone access, then try again"); done(); };
+  rec.onend = done;
+  try { rec.start(); } catch (_) { done(); }
+}
+let _sayBtn = null;
+function speakText(text, btn) {
+  if (!("speechSynthesis" in window)) { toast("Listening isn't supported in this browser"); return; }
+  if (speechSynthesis.speaking && _sayBtn === btn) { speechSynthesis.cancel(); return; }
+  speechSynthesis.cancel();
+  const clean = (text || "").replace(/[*#_`>~]/g, "").slice(0, 1200);
+  if (!clean.trim()) return;
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = "hi-IN"; u.rate = 0.98;
+  const v = speechSynthesis.getVoices().find(v => (v.lang || "").toLowerCase().startsWith("hi"));
+  if (v) u.voice = v;
+  if (btn) {
+    btn.innerHTML = "⏹ Stop"; _sayBtn = btn;
+    const reset = () => { if (_sayBtn === btn) { btn.innerHTML = "🔊 Listen"; _sayBtn = null; } };
+    u.onend = reset; u.onerror = reset;
+  }
+  speechSynthesis.speak(u);
+}
+
 /* ---------------- AI Tutor ---------------- */
 let tutorChat = [];   // {role:'me'|'ai', text} — kept while the app stays open
 let tutorBusy = false;
 async function renderTutor() {
   const chips = ["Explain refraction of light", "What is photosynthesis?", "Why do the angles of a triangle add up to 180°?", "Explain the water cycle", "How do I solve x + 5 = 12?"];
-  const bubble = (m) => m.role === "me"
+  const bubble = (m, i) => m.role === "me"
     ? `<div class="chatrow me"><div class="bubble me">${esc(m.text)}</div></div>`
-    : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${esc(m.text).replace(/\n/g, "<br>")}</div></div>`;
+    : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${esc(m.text).replace(/\n/g, "<br>")}<br><button type="button" class="light small" data-sayidx="${i}" style="margin-top:6px">🔊 Listen</button></div></div>`;
   $app.innerHTML = `
     <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
-      <p class="muted" style="margin:6px 0 0">Ask any study question — the AI Tutor will explain it step-by-step in easy Hindi.</p>
+      <p class="muted" style="margin:6px 0 0">Ask any study question — type it, or tap 🎤 and speak. The AI Tutor will explain it step-by-step in easy Hindi.</p>
       ${tutorChat.length ? "" : `<div class="row" style="margin-top:10px">${chips.map(c => `<button class="light small" data-tchip="${esc(c)}">${esc(c)}</button>`).join("")}</div>`}
     </div>
-    <div id="tutorMsgs">${tutorChat.map(bubble).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 Typing…</div></div>` : ""}</div>
+    <div id="tutorMsgs">${tutorChat.map((m, i) => bubble(m, i)).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 Typing…</div></div>` : ""}</div>
     <form id="tutorForm" class="card">
       <div class="row">
-        <input id="tutorInput" placeholder="Write your question…" style="flex:1" ${tutorBusy ? "disabled" : ""}>
+        <input id="tutorInput" placeholder="Write or speak your question…" style="flex:1" ${tutorBusy ? "disabled" : ""}>
+        ${voiceSupported() ? `<button type="button" class="light" id="tutorMic" title="Ask by speaking" ${tutorBusy ? "disabled" : ""}>🎤</button>` : ""}
         <button type="submit" ${tutorBusy ? "disabled" : ""}>Ask ➤</button>
       </div>
       ${tutorChat.length ? `<button type="button" class="light small" id="tutorClear" style="margin-top:8px">🧹 Clear chat</button>` : ""}
@@ -1875,6 +1919,9 @@ async function renderTutor() {
     renderTutor();
   };
   document.getElementById("tutorForm").onsubmit = (e) => { e.preventDefault(); send(document.getElementById("tutorInput").value); };
+  const tmic = document.getElementById("tutorMic");
+  if (tmic) tmic.onclick = () => startVoice(document.getElementById("tutorInput"), tmic);
+  $app.querySelectorAll("[data-sayidx]").forEach(b => b.onclick = () => speakText(tutorChat[+b.dataset.sayidx].text, b));
   $app.querySelectorAll("[data-tchip]").forEach(b => b.onclick = () => send(b.dataset.tchip));
   const clr = document.getElementById("tutorClear");
   if (clr) clr.onclick = () => { tutorChat = []; renderTutor(); };
@@ -1908,8 +1955,8 @@ async function renderDoubts() {
         ${statusPill(d)}
       </div>
       <p class="muted" style="margin:6px 0 0">${staffView ? `👤 ${esc(nameMap[d.student_id] || "Student")} • ` : ""}${d.class_id ? esc(clsName(d.class_id)) + " • " : ""}${d.subject_id ? esc(subName(d.subject_id)) + " • " : ""}${new Date(d.created_at).toLocaleString("en-IN")}</p>
-      ${d.answer_text ? `<div class="expl-box" style="margin-top:10px">💬 <b>Answer${staffView && d.answered_by && nameMap[d.answered_by] ? ` — ${esc(nameMap[d.answered_by])}` : ""}:</b><br><span style="white-space:pre-wrap">${esc(d.answer_text)}</span>${d.answered_at ? `<br><span class="muted">${new Date(d.answered_at).toLocaleString("en-IN")}</span>` : ""}</div>` : ""}
-      ${d.ai_answer ? `<div class="expl-box" style="margin-top:10px; background:#eef4ff; border-color:#9db9e8">🤖 <b>AI's Answer:</b><br><span style="white-space:pre-wrap">${esc(d.ai_answer)}</span></div>`
+      ${d.answer_text ? `<div class="expl-box" style="margin-top:10px">💬 <b>Answer${staffView && d.answered_by && nameMap[d.answered_by] ? ` — ${esc(nameMap[d.answered_by])}` : ""}:</b><br><span style="white-space:pre-wrap">${esc(d.answer_text)}</span>${d.answered_at ? `<br><span class="muted">${new Date(d.answered_at).toLocaleString("en-IN")}</span>` : ""}<br><button type="button" class="light small" data-saydoubt="${d.id}" data-kind="ans" style="margin-top:6px">🔊 Listen</button></div>` : ""}
+      ${d.ai_answer ? `<div class="expl-box" style="margin-top:10px; background:#eef4ff; border-color:#9db9e8">🤖 <b>AI's Answer:</b><br><span style="white-space:pre-wrap">${esc(d.ai_answer)}</span><br><button type="button" class="light small" data-saydoubt="${d.id}" data-kind="ai" style="margin-top:6px">🔊 Listen</button></div>`
         : `<div style="margin-top:10px"><button class="light small" data-dai="${d.id}">🤖 Get AI Answer</button></div>`}
       ${staffView && d.status === "open" ? `
         <label style="margin-top:10px">Write your answer</label>
@@ -1924,6 +1971,12 @@ async function renderDoubts() {
       const { error } = await sb.functions.invoke("answer-doubt", { body: { doubt_id: +b.dataset.dai } });
       if (error) toast("The AI answer couldn't be fetched right now — Sir will answer");
       renderDoubts();
+    });
+  };
+  const wireSpeak = () => {
+    $app.querySelectorAll("[data-saydoubt]").forEach(b => b.onclick = () => {
+      const d = list.find(x => x.id === +b.dataset.saydoubt); if (!d) return;
+      speakText(b.dataset.kind === "ai" ? d.ai_answer : d.answer_text, b);
     });
   };
 
@@ -1953,7 +2006,7 @@ async function renderDoubts() {
       if (d0) await notifyUsers([d0.student_id], "doubt", "✅ Your doubt has been answered", (d0.question_text || "").slice(0, 120));
       toast("Answer sent ✅"); renderDoubts();
     });
-    wireAI();
+    wireAI(); wireSpeak();
     return;
   }
 
@@ -1963,11 +2016,12 @@ async function renderDoubts() {
   const mySubjs = (subjects || []).filter(s => enrolledIds.includes(s.class_id));
   $app.innerHTML = `
     <div class="card"><h3>❓ Ask Your Doubt</h3>
-      <p class="muted" style="margin-top:0">Write here whatever you don't understand in your studies — Sir will answer.</p>
+      <p class="muted" style="margin-top:0">Write or speak here whatever you don't understand in your studies — Sir will answer.</p>
       <label>Subject</label>
       <select id="db_subject"><option value="">— General question —</option>${mySubjs.map(s => `<option value="${s.id}">${esc(s.name)}${s.name_hi ? " • " + esc(s.name_hi) : ""} (${esc(clsName(s.class_id))})</option>`).join("")}</select>
       <label>Write your question</label>
       <textarea id="db_q" placeholder="e.g. What is refraction of light? Explain with an example…"></textarea>
+      ${voiceSupported() ? `<button type="button" class="light" id="db_mic" style="width:100%; margin-top:6px">🎤 Ask by Speaking</button>` : ""}
       <div class="error" id="db_err"></div>
       <button class="gold" id="db_ask" style="width:100%">Send Doubt</button>
     </div>
@@ -1992,7 +2046,9 @@ async function renderDoubts() {
     if (nd) { try { await sb.functions.invoke("answer-doubt", { body: { doubt_id: nd.id } }); } catch (_) { /* AI न आए तो Sir जवाब देंगे */ } }
     renderDoubts();
   };
-  wireAI();
+  const dbmic = document.getElementById("db_mic");
+  if (dbmic) dbmic.onclick = () => startVoice(document.getElementById("db_q"), dbmic);
+  wireAI(); wireSpeak();
 }
 
 /* ---------------- Homework ---------------- */
