@@ -830,3 +830,63 @@ alter table public.doubts add column if not exists ai_answered_at timestamptz;
 -- ============================================================
 grant all on all tables in schema public to service_role;
 grant all on all sequences in schema public to service_role;
+
+-- ============================================================
+-- PATCH v18 (21 Oct 2026): notifications fan-out, leaderboard, live classes
+-- (full text in patch_v18.sql)
+-- ============================================================
+-- ============================================================
+-- Target Academy — PATCH v18 (21 Oct 2026)
+-- Notifications fan-out + Leaderboard RPC + Live Classes
+-- ============================================================
+
+-- 1) Staff may create notifications for other users (announcements,
+--    test publishes, doubt answers). Reading stays own-only.
+create policy notifications_staff_insert on public.notifications for insert
+  with check (public.is_staff());
+
+-- 2) Leaderboard: aggregates only (name, tests given, average %) —
+--    students never read each other's raw attempts.
+create or replace function public.get_leaderboard(p_class_id bigint default null)
+returns table(student_id uuid, full_name text, tests_given int, avg_pct numeric)
+language sql
+security definer
+set search_path = public
+as $$
+  select a.student_id, p.full_name, count(*)::int as tests_given,
+         round(avg(a.percent)) as avg_pct
+  from public.test_attempts a
+  join public.tests t on t.id = a.test_id
+  join public.profiles p on p.id = a.student_id
+  where a.status = 'submitted'
+    and (p_class_id is null or t.class_id = p_class_id)
+  group by a.student_id, p.full_name
+  order by avg(a.percent) desc, count(*) desc
+  limit 50;
+$$;
+grant execute on function public.get_leaderboard(bigint) to authenticated;
+
+-- 3) Live Classes
+create table if not exists public.live_classes (
+  id bigint generated always as identity primary key,
+  class_id bigint not null references public.classes(id) on delete cascade,
+  title text not null,
+  meet_link text not null,
+  starts_at timestamptz not null,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_live_classes_time on public.live_classes(starts_at);
+alter table public.live_classes enable row level security;
+create policy live_read on public.live_classes for select
+  using (public.is_staff() or public.enrolled_in(class_id));
+create policy live_write on public.live_classes for all
+  using (public.is_staff()) with check (public.is_staff());
+grant select, insert, update, delete on public.live_classes to authenticated;
+grant usage, select on sequence public.live_classes_id_seq to authenticated;
+
+-- Verify:
+select
+  (select count(*) from pg_policies where tablename = 'live_classes') as live_policies,
+  (select count(*) from pg_policies where policyname = 'notifications_staff_insert') as notif_staff_policy,
+  (select count(*) from pg_proc where proname = 'get_leaderboard') as leaderboard_fn;

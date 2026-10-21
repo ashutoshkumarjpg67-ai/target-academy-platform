@@ -348,3 +348,6 @@ details.card summary::-webkit-details-marker{display:none}
 /* Study material tabs */
 .mtabs{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px}
 body.auth-mode #sidebar{display:none !important}
+
+/* Notifications bell badge (v18) */
+.bellbadge{position:absolute;top:-6px;right:-6px;background:#e11d48;color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:999px;padding:0 4px}

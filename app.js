@@ -5,6 +5,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
 const $tabbar = document.getElementById("tabbar");
 const $logout = document.getElementById("logoutBtn");
+const $bell = document.getElementById("bellBtn");
 const $toast = document.getElementById("toast");
 
 let me = null;        // auth user
@@ -18,12 +19,33 @@ function toast(msg, ms = 2600) {
   clearTimeout(toast._t); toast._t = setTimeout(() => $toast.classList.add("hidden"), ms);
 }
 const isStaff = () => profile && (profile.role === "admin" || profile.role === "teacher");
+
+/* ---------------- Notifications ---------------- */
+async function notifyUsers(userIds, kind, title, body) {
+  try {
+    const rows = [...new Set(userIds || [])].filter(id => id && (!me || id !== me.id))
+      .map(user_id => ({ user_id, kind, title, body: body || null }));
+    if (rows.length) await sb.from("notifications").insert(rows);
+  } catch (_) { /* notifications must never break the main action */ }
+}
+async function notifyClassStudents(classId, kind, title, body) {
+  if (!classId) return;
+  const { data } = await sb.from("enrollments").select("user_id").eq("class_id", classId);
+  await notifyUsers((data || []).map(e => e.user_id), kind, title, body);
+}
+async function refreshBell() {
+  const badge = document.getElementById("bellBadge");
+  if (!badge || !me) return;
+  const { count } = await sb.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", me.id).eq("is_read", false);
+  if (count) { badge.textContent = count > 99 ? "99+" : count; badge.classList.remove("hidden"); }
+  else badge.classList.add("hidden");
+}
 const roleName = (r) => ({admin:"Admin • व्यवस्थापक", teacher:"Teacher • शिक्षक", student:"Student • छात्र", parent:"Parent • अभिभावक"}[r] || r);
 
 /* ---------------- Auth screens ---------------- */
 function renderAuth(mode = "login") {
   document.body.classList.add("auth-mode");
-  $tabbar.classList.add("hidden"); $logout.classList.add("hidden");
+  $tabbar.classList.add("hidden"); $logout.classList.add("hidden"); if ($bell) $bell.classList.add("hidden");
   $app.innerHTML = `
     <div class="hero">
       <span class="badge">ADMISSION OPEN</span>
@@ -80,6 +102,7 @@ async function boot() {
   const { data: cls } = await sb.from("classes").select("*").order("sort_order");
   myClasses = cls || [];
   $logout.classList.remove("hidden");
+  if ($bell) { $bell.classList.remove("hidden"); $bell.onclick = () => { tab = "notif"; renderShell(); }; refreshBell(); }
   renderShell();
 }
 $logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
@@ -99,6 +122,8 @@ function renderShell() {
   const navHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
   const extraTabs = [
     { id: "doubts", ic: "❓", label: "Doubts" },
+    { id: "live", ic: "📺", label: "Live Class" },
+    { id: "top", ic: "🏆", label: "Leaderboard" },
     { id: "homework", ic: "📒", label: "Homework" },
     { id: "attendance", ic: "✅", label: "Attendance" },
     { id: "timetable", ic: "🗓️", label: "Timetable" },
@@ -113,7 +138,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, doubts: renderDoubts, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, doubts: renderDoubts, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -336,6 +361,8 @@ async function renderManage() {
     if (!title) { err.textContent = "शीर्षक लिखें"; return; }
     const { error } = await sb.from("announcements").insert({ author_id: me.id, class_id: null, title, body });
     if (error) { err.textContent = error.message; return; }
+    const { data: studs } = await sb.from("profiles").select("id").in("role", ["student", "parent"]);
+    await notifyUsers((studs || []).map(p => p.id), "announcement", "📢 " + title, body);
     toast("Notice भेज दिया गया 📢"); tab = "home"; renderShell();
   };
   renderQBank(subjects || [], chapters || []);
@@ -1031,8 +1058,13 @@ async function renderTests() {
     };
     $app.querySelectorAll("[data-tpub]").forEach(b => b.onclick = async () => {
       const [id, st] = b.dataset.tpub.split(":");
-      const { error } = await sb.from("tests").update({ status: st === "published" ? "draft" : "published" }).eq("id", +id);
+      const publishing = st !== "published";
+      const { error } = await sb.from("tests").update({ status: publishing ? "published" : "draft" }).eq("id", +id);
       if (error) return toast("Error: " + error.message);
+      if (publishing) {
+        const t = (tests || []).find(x => x.id === +id);
+        if (t) await notifyClassStudents(t.class_id, "test", "📝 नया Test: " + t.title, "नया test शुरू हो गया है — Tests section में जाकर दें।");
+      }
       renderTests();
     });
     $app.querySelectorAll("[data-tdel]").forEach(b => b.onclick = async () => {
@@ -1350,6 +1382,8 @@ async function renderMore() {
     <div class="card">
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
       <div class="menu-item" data-nav="doubts" style="cursor:pointer"><span class="mi">❓</span>Doubts<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="live" style="cursor:pointer"><span class="mi">📺</span>Live Class<span class="arr">›</span></div>
+      <div class="menu-item" data-nav="top" style="cursor:pointer"><span class="mi">🏆</span>Leaderboard<span class="arr">›</span></div>
       <div class="menu-item" data-nav="homework" style="cursor:pointer"><span class="mi">📒</span>Homework<span class="arr">›</span></div>
       <div class="menu-item" data-nav="attendance" style="cursor:pointer"><span class="mi">✅</span>Attendance<span class="arr">›</span></div>
       <div class="menu-item" data-nav="timetable" style="cursor:pointer"><span class="mi">🗓️</span>Timetable<span class="arr">›</span></div>
@@ -1364,6 +1398,111 @@ async function renderMore() {
 /* ---------------- Start ---------------- */
 sb.auth.onAuthStateChange(() => { /* boot handles routing */ });
 boot();
+
+/* ---------------- Notifications / Live / Leaderboard ---------------- */
+async function renderNotifs() {
+  const { data: rows } = await sb.from("notifications").select("*").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50);
+  const icons = { announcement: "📢", test: "📝", doubt: "❓", live: "📺", note: "📚", assignment: "📒", fee: "💰", result: "🏆" };
+  const unread = (rows || []).filter(n => !n.is_read).length;
+  $app.innerHTML = `
+    <div class="card"><h3 style="margin:0">🔔 मेरी सूचनाएँ ${unread ? `<span class="pill green">${unread} नई</span>` : ""}</h3>
+      <p class="muted" style="margin:6px 0 0">Academy की हर नई जानकारी — notice, नए tests, doubt के जवाब — यहाँ मिलेगी।</p>
+      ${unread ? `<button class="light" id="nReadAll" style="margin-top:10px">✓ सभी को पढ़ा हुआ mark करें</button>` : ""}
+    </div>
+    ${(rows || []).map(n => `
+      <div class="card" data-nread="${n.id}" style="cursor:pointer;${n.is_read ? "opacity:.72" : ""}">
+        <div class="row" style="justify-content:space-between">
+          <b>${icons[n.kind] || "🔔"} ${esc(n.title)}</b>${n.is_read ? "" : `<span class="pill green">नया</span>`}
+        </div>
+        ${n.body ? `<p class="muted" style="margin:6px 0 0">${esc(n.body)}</p>` : ""}
+        <div class="s muted" style="margin-top:6px">${new Date(n.created_at).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div>
+      </div>`).join("") || `<div class="card"><p class="muted">अभी कोई सूचना नहीं है।</p></div>`}`;
+  const allBtn = document.getElementById("nReadAll");
+  if (allBtn) allBtn.onclick = async () => {
+    await sb.from("notifications").update({ is_read: true }).eq("user_id", me.id).eq("is_read", false);
+    refreshBell(); renderNotifs();
+  };
+  $app.querySelectorAll("[data-nread]").forEach(c => c.onclick = async () => {
+    await sb.from("notifications").update({ is_read: true }).eq("id", +c.dataset.nread);
+    refreshBell(); renderNotifs();
+  });
+}
+
+async function renderLive() {
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
+  const { data: rows, error } = await sb.from("live_classes").select("*").order("starts_at", { ascending: true });
+  if (error) { $app.innerHTML = `<div class="card"><h3>📺 Live Class</h3><p class="muted">यह feature अभी तैयार हो रहा है।</p></div>`; return; }
+  const cutoff = Date.now() - 2 * 3600 * 1000;
+  const up = (rows || []).filter(r => new Date(r.starts_at).getTime() > cutoff);
+  const past = (rows || []).filter(r => new Date(r.starts_at).getTime() <= cutoff).reverse();
+  const fmt = (iso) => new Date(iso).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const card = (r, old) => `
+    <div class="card" ${old ? `style="opacity:.65"` : ""}>
+      <h3 style="margin:0">📺 ${esc(r.title)}</h3>
+      <div class="s muted" style="margin-top:4px">${esc(clsName(r.class_id))} • 🕐 ${fmt(r.starts_at)}</div>
+      <div class="row" style="margin-top:10px">
+        <a href="${esc(r.meet_link)}" target="_blank" rel="noopener"><button>▶ Join करें</button></a>
+        ${isStaff() ? `<button class="danger small" data-lcdel="${r.id}">हटाएँ</button>` : ""}
+      </div>
+    </div>`;
+  $app.innerHTML = `
+    ${isStaff() ? `<div class="card"><h3>📺 नई Live Class रखें</h3>
+      <label>Class</label><select id="lc_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+      <label>शीर्षक</label><input id="lc_title" placeholder="जैसे: Physics — प्रकाशिकी Revision">
+      <label>Join Link (Google Meet / Zoom / YouTube Live)</label><input id="lc_link" placeholder="https://meet.google.com/...">
+      <label>तारीख़ और समय</label><input id="lc_time" type="datetime-local">
+      <p class="err" id="lcErr"></p>
+      <button id="lcBtn">📺 Live Class बनाएँ</button>
+      <p class="muted" style="margin:8px 0 0">बनाते ही उस class के students को सूचना चली जाएगी।</p></div>` : ""}
+    <div class="card"><h3 style="margin:0">📺 आने वाली Live Classes</h3></div>
+    ${up.map(r => card(r, false)).join("") || `<div class="card"><p class="muted">अभी कोई live class तय नहीं है।</p></div>`}
+    ${past.length ? `<div class="card"><h3 style="margin:0">पिछली Classes</h3></div>${past.map(r => card(r, true)).join("")}` : ""}`;
+  if (isStaff()) {
+    document.getElementById("lcBtn").onclick = async () => {
+      const err = document.getElementById("lcErr");
+      const class_id = +document.getElementById("lc_class").value;
+      const title = document.getElementById("lc_title").value.trim();
+      const meet_link = document.getElementById("lc_link").value.trim();
+      const tval = document.getElementById("lc_time").value;
+      if (!title) { err.textContent = "शीर्षक लिखें"; return; }
+      if (!/^https?:\/\//i.test(meet_link)) { err.textContent = "सही join link डालें (https:// से शुरू)"; return; }
+      if (!tval) { err.textContent = "तारीख़ और समय चुनें"; return; }
+      const { error } = await sb.from("live_classes").insert({ class_id, title, meet_link, starts_at: new Date(tval).toISOString(), created_by: me.id });
+      if (error) { err.textContent = error.message; return; }
+      await notifyClassStudents(class_id, "live", "📺 Live Class: " + title, fmt(new Date(tval).toISOString()) + " — Join link Live Class section में मिलेगा।");
+      toast("Live Class बन गई 📺"); renderLive();
+    };
+    $app.querySelectorAll("[data-lcdel]").forEach(b => b.onclick = async () => {
+      if (!confirm("यह live class हटाएँ?")) return;
+      const { error } = await sb.from("live_classes").delete().eq("id", +b.dataset.lcdel);
+      if (error) return toast("Error: " + error.message);
+      renderLive();
+    });
+  }
+}
+
+let topClass = "all";
+async function renderTop() {
+  const { data, error } = await sb.rpc("get_leaderboard", { p_class_id: topClass === "all" ? null : +topClass });
+  if (error) { $app.innerHTML = `<div class="card"><h3>🏆 Leaderboard</h3><p class="muted">यह feature अभी तैयार हो रहा है।</p></div>`; return; }
+  const medals = ["🥇", "🥈", "🥉"];
+  $app.innerHTML = `
+    <div class="card"><h3 style="margin:0">🏆 Leaderboard</h3>
+      <p class="muted" style="margin:6px 0 0">Tests में सबसे अच्छे score वाले students — मेहनत का सम्मान!</p>
+      <div class="row" style="margin-top:10px">
+        <button class="${topClass === "all" ? "" : "light"} small" data-tclass="all">सभी Classes</button>
+        ${myClasses.map(c => `<button class="${String(topClass) === String(c.id) ? "" : "light"} small" data-tclass="${c.id}">${esc(c.name)}</button>`).join("")}
+      </div></div>
+    ${(data || []).map((r, i) => `
+      <div class="card" ${r.student_id === me.id ? `style="border:2px solid var(--gold,#c9a227)"` : ""}>
+        <div class="row" style="justify-content:space-between">
+          <b>${medals[i] || (i + 1) + "."} ${esc(r.full_name)}${r.student_id === me.id ? " (आप)" : ""}</b>
+          <span class="pill ${i === 0 ? "green" : ""}">${r.avg_pct}% औसत</span>
+        </div>
+        <div class="s muted" style="margin-top:4px">Tests दिए: ${r.tests_given}</div>
+      </div>`).join("") || `<div class="card"><p class="muted">अभी किसी ने test नहीं दिया है — पहले test के बाद रैंकिंग यहाँ दिखेगी।</p></div>`}`;
+  $app.querySelectorAll("[data-tclass]").forEach(b => b.onclick = () => { topClass = b.dataset.tclass; renderTop(); });
+}
 
 /* ---------------- Doubts ---------------- */
 let doubtTab = "open"; // staff filter: open | answered | all
@@ -1433,6 +1572,8 @@ async function renderDoubts() {
       if (!txt) { err.textContent = "पहले जवाब लिखें"; return; }
       const { error } = await sb.from("doubts").update({ answer_text: txt, answered_by: me.id, status: "answered", answered_at: new Date().toISOString() }).eq("id", id);
       if (error) { err.textContent = error.message; return; }
+      const d0 = (list || []).find(x => x.id === id);
+      if (d0) await notifyUsers([d0.student_id], "doubt", "✅ आपके doubt का जवाब आ गया", (d0.question_text || "").slice(0, 120));
       toast("जवाब भेज दिया ✅"); renderDoubts();
     });
     wireAI();
