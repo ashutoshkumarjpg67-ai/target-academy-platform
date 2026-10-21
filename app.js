@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=5";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=6";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -282,6 +282,7 @@ async function renderManage() {
       <label>नई Class का नाम</label>
       <div class="row"><input id="newClass" placeholder="जैसे: Class 10"><button class="gold" id="addClassBtn">जोड़ें</button></div>
     </div>
+    <div id="fees"></div>
     <div id="qbank"></div>
     <div class="card">
       <h3>📢 Notice डालें</h3>
@@ -321,6 +322,108 @@ async function renderManage() {
     toast("Notice भेज दिया गया 📢"); tab = "home"; renderShell();
   };
   renderQBank(subjects || [], chapters || []);
+  renderFees();
+}
+
+/* ---------------- Fees (staff) ---------------- */
+async function renderFees() {
+  const host = document.getElementById("fees");
+  if (!host) return;
+  const [{ data: plans }, { data: records }, { data: studs }, { data: enrAll }] = await Promise.all([
+    sb.from("fee_plans").select("*"),
+    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(60),
+    sb.from("profiles").select("id,full_name").eq("role", "student"),
+    sb.from("enrollments").select("*"),
+  ]);
+  const planOf = (cid, type) => (plans || []).find(p => p.class_id === cid && p.fee_type === type)?.amount ?? "";
+  const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
+  const totalDue = (records || []).reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
+  const totalPaid = (records || []).reduce((s, r) => s + +r.paid_amount, 0);
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const now = new Date();
+  const defaultPeriod = `${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+
+  host.innerHTML = `
+    <div class="card"><h3>💰 Fees</h3>
+      <div class="stats">
+        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">कुल जमा</div></div>
+        <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n">₹${totalDue.toLocaleString("en-IN")}</div><div class="l">कुल बकाया</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">🧾</div><div class="n">${(records || []).length}</div><div class="l">Fee records</div></div>
+      </div>
+      <label>Class के हिसाब से Fee तय करें</label>
+      ${myClasses.map(c => `<div class="row" style="align-items:flex-end; margin-bottom:4px">
+        <div style="flex:1.4"><b>${esc(c.name)}</b></div>
+        <div><label>महीने की (₹)</label><input type="number" id="fp_m_${c.id}" value="${planOf(c.id, "monthly")}" placeholder="जैसे 800"></div>
+        <div><label>साल की (₹)</label><input type="number" id="fp_y_${c.id}" value="${planOf(c.id, "yearly")}" placeholder="जैसे 8000"></div>
+        <div style="flex:0 0 auto"><button class="light small" data-fpsave="${c.id}">Save</button></div>
+      </div>`).join("")}
+      <label style="margin-top:14px">पूरी Class के लिए Fee बनाएँ</label>
+      <div class="row">
+        <div><label>Class</label><select id="fg_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
+        <div><label>प्रकार</label><select id="fg_type"><option value="monthly">महीने की</option><option value="yearly">साल की</option><option value="admission">Admission</option><option value="exam">Exam</option><option value="other">अन्य</option></select></div>
+      </div>
+      <div class="row">
+        <div><label>समय (Period)</label><input id="fg_period" value="${defaultPeriod}"></div>
+        <div><label>रकम (₹)</label><input id="fg_amount" type="number" placeholder="ऊपर तय fee से अपने-आप आएगी"></div>
+        <div><label>आखिरी तारीख़</label><input id="fg_due" type="date"></div>
+      </div>
+      <div class="error" id="fg_err"></div>
+      <button class="gold" id="fg_gen" style="width:100%">सभी Students के लिए Fee बनाएँ</button>
+      <label style="margin-top:14px">ताज़ा Fee Records</label>
+      ${(records || []).map(r => `<div class="item"><div>
+          <div class="t" style="font-size:14px">${esc(nameOf(r.student_id))}</div>
+          <div class="s">${esc(r.fee_type)} • ${esc(r.period)} • ₹${r.amount} में से ₹${r.paid_amount} जमा${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">बकाया ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
+        <span style="display:flex; gap:6px; align-items:center">
+          <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span>
+          ${r.status !== "paid" ? `<button class="light small" data-fpay="${r.id}:${+r.amount - +r.paid_amount}">+ Payment</button>` : ""}
+        </span></div>`).join("") || `<p class="muted">अभी कोई fee record नहीं है।</p>`}
+    </div>`;
+
+  host.querySelectorAll("[data-fpsave]").forEach(b => b.onclick = async () => {
+    const cid = +b.dataset.fpsave;
+    for (const [type, el] of [["monthly", "fp_m_"], ["yearly", "fp_y_"]]) {
+      const v = document.getElementById(el + cid).value;
+      if (v === "") continue;
+      const { error } = await sb.from("fee_plans").upsert({ class_id: cid, fee_type: type, amount: +v }, { onConflict: "class_id,fee_type" });
+      if (error) return toast("Error: " + error.message);
+    }
+    toast("Fee तय हो गई 💰"); renderFees();
+  });
+  const syncAmt = () => {
+    const cid = +document.getElementById("fg_class").value;
+    const type = document.getElementById("fg_type").value;
+    const p = (plans || []).find(x => x.class_id === cid && x.fee_type === type);
+    if (p) document.getElementById("fg_amount").value = p.amount;
+  };
+  document.getElementById("fg_class").onchange = syncAmt;
+  document.getElementById("fg_type").onchange = syncAmt;
+  syncAmt();
+  document.getElementById("fg_gen").onclick = async () => {
+    const err = document.getElementById("fg_err"); err.textContent = "";
+    const cid = +document.getElementById("fg_class").value;
+    const type = document.getElementById("fg_type").value;
+    const period = document.getElementById("fg_period").value.trim();
+    const amount = +document.getElementById("fg_amount").value;
+    const due = document.getElementById("fg_due").value || null;
+    if (!period || !amount) { err.textContent = "Period और रकम भरें"; return; }
+    const studsInClass = (enrAll || []).filter(e => e.class_id === cid).map(e => e.user_id);
+    if (!studsInClass.length) { err.textContent = "इस class में कोई student नहीं है"; return; }
+    const rows = studsInClass.map(sid => ({ student_id: sid, class_id: cid, fee_type: type, period, amount, due_date: due, recorded_by: me.id }));
+    const { error } = await sb.from("fee_records").upsert(rows, { onConflict: "student_id,fee_type,period", ignoreDuplicates: true });
+    if (error) { err.textContent = error.message; return; }
+    toast(`Fee बन गई — ${studsInClass.length} students के लिए 🧾`); renderFees();
+  };
+  host.querySelectorAll("[data-fpay]").forEach(b => b.onclick = async () => {
+    const [id, dueAmt] = b.dataset.fpay.split(":");
+    const v = prompt(`कितने ₹ जमा हुए? (बकाया ₹${dueAmt})`);
+    if (!v) return;
+    const rec = (records || []).find(r => r.id === +id);
+    const paid = +rec.paid_amount + +v;
+    const status = paid >= +rec.amount ? "paid" : "partial";
+    const { error } = await sb.from("fee_records").update({ paid_amount: paid, status, updated_at: new Date().toISOString() }).eq("id", +id);
+    if (error) return toast("Error: " + error.message);
+    toast("Payment दर्ज हो गया ✅"); renderFees();
+  });
 }
 
 /* ---------------- Question Bank (staff only) ---------------- */
@@ -425,6 +528,12 @@ async function renderUsers() {
   ]);
   const enrOf = (uid) => (enr || []).filter(e => e.user_id === uid).map(e => e.class_id);
   const className = (id) => (myClasses.find(c => c.id === id) || {}).name || "?";
+  const urlMap = {};
+  const photoPaths = (users || []).filter(u => u.photo_path).map(u => u.photo_path);
+  if (photoPaths.length) {
+    const { data: signed } = await sb.storage.from("avatars").createSignedUrls(photoPaths, 3600);
+    (signed || []).forEach(s => { if (s.path && s.signedUrl) urlMap[s.path] = s.signedUrl; });
+  }
 
   $app.innerHTML = `
     <div class="card"><h3>➕ नया Student ख़ुद जोड़ें</h3>
@@ -432,6 +541,14 @@ async function renderUsers() {
       <label>Student का नाम</label><input id="ns_name" placeholder="जैसे: Rahul Kumar">
       <label>Email (student या parent का)</label><input id="ns_email" type="email" placeholder="student@example.com">
       <label>Password (आप तय करें — student को यही बताना होगा)</label><input id="ns_pass" type="text" placeholder="कम से कम 6 अक्षर, जैसे: rahul123">
+      <label>पिता का नाम</label><input id="ns_father" placeholder="Father's name">
+      <label>माता का नाम (ऐच्छिक)</label><input id="ns_mother" placeholder="Mother's name">
+      <div class="row">
+        <div><label>जन्मतिथि (Date of Birth)</label><input id="ns_dob" type="date"></div>
+        <div><label>Admission की तारीख़</label><input id="ns_adm" type="date"></div>
+      </div>
+      <label>मोबाइल नंबर</label><input id="ns_phone" type="tel" placeholder="10 अंकों का नंबर">
+      <label>पता</label><input id="ns_addr" placeholder="गाँव / मोहल्ला, जिला">
       <label>Class में जोड़ें</label><select id="ns_class"><option value="">— बाद में जोड़ूँगा —</option>${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
       <div class="error" id="ns_err"></div>
       <div id="ns_done"></div>
@@ -440,12 +557,29 @@ async function renderUsers() {
     <div class="card"><h3>👥 सभी Users (${(users || []).length})</h3>
     <p>Role बदलना और student को class में जोड़ना यहीं से होगा।</p>
     ${(users || []).map(u => `
-      <div class="item">
-        <div>
+      <div class="item" style="align-items:flex-start">
+        ${u.photo_path && urlMap[u.photo_path]
+          ? `<img src="${urlMap[u.photo_path]}" alt="" style="width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto">`
+          : `<div class="avatar" style="width:44px; height:44px; font-size:17px">${esc((u.full_name || "?").trim()[0].toUpperCase())}</div>`}
+        <div style="flex:1">
           <div class="t">${esc(u.full_name)} ${u.id === me.id ? '<span class="pill gold">आप</span>' : ""}</div>
-          <div class="s">${esc(roleName(u.role))}${u.role === "student" ? " • " + (enrOf(u.id).map(className).join(", ") || "कोई class नहीं") : ""}</div>
+          <div class="s">${esc(roleName(u.role))}${u.role === "student" ? " • " + (enrOf(u.id).map(className).join(", ") || "कोई class नहीं") : ""}
+          ${u.father_name ? `<br>पिता: ${esc(u.father_name)}` : ""}${u.dob ? ` • जन्म: ${esc(u.dob)}` : ""}${u.admission_date ? `<br>Admission: ${esc(u.admission_date)}` : ""}${u.phone ? ` • 📞 ${esc(u.phone)}` : ""}</div>
+          <div id="edit-${u.id}" class="hidden" style="margin-top:8px">
+            <label>नाम</label><input id="e_name-${u.id}" value="${esc(u.full_name)}">
+            <label>पिता का नाम</label><input id="e_father-${u.id}" value="${esc(u.father_name || "")}">
+            <label>माता का नाम</label><input id="e_mother-${u.id}" value="${esc(u.mother_name || "")}">
+            <div class="row">
+              <div><label>जन्मतिथि</label><input id="e_dob-${u.id}" type="date" value="${esc(u.dob || "")}"></div>
+              <div><label>Admission तारीख़</label><input id="e_adm-${u.id}" type="date" value="${esc(u.admission_date || "")}"></div>
+            </div>
+            <label>मोबाइल</label><input id="e_phone-${u.id}" value="${esc(u.phone || "")}">
+            <label>पता</label><input id="e_addr-${u.id}" value="${esc(u.address || "")}">
+            <label>Profile Photo</label><input id="e_photo-${u.id}" type="file" accept="image/*">
+            <button class="gold small" data-save="${u.id}" style="margin-top:8px">💾 Save करें</button>
+          </div>
         </div>
-        <div class="row" style="flex:0 0 auto; align-items:center">
+        <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
           <select data-role="${u.id}" style="width:auto; padding:7px">
             ${["student","teacher","parent","admin"].map(r => `<option value="${r}" ${u.role === r ? "selected" : ""}>${r}</option>`).join("")}
           </select>
@@ -453,6 +587,7 @@ async function renderUsers() {
             <option value="">+ Class…</option>
             ${myClasses.filter(c => !enrOf(u.id).includes(c.id)).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}
           </select>` : ""}
+          <button class="light small" data-edit="${u.id}">✏️ Edit</button>
         </div>
       </div>`).join("")}
   </div>`;
@@ -467,6 +602,35 @@ async function renderUsers() {
     const { error } = await sb.from("enrollments").insert({ user_id: sel.dataset.enroll, class_id: +sel.value });
     if (error) return toast("Error: " + error.message);
     toast("Student class में जुड़ गया 🎓"); renderUsers();
+  });
+  $app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    document.getElementById("edit-" + b.dataset.edit).classList.toggle("hidden");
+  });
+  $app.querySelectorAll("[data-save]").forEach(b => b.onclick = async () => {
+    const uid = b.dataset.save;
+    try {
+      let photo_path;
+      const file = document.getElementById("e_photo-" + uid).files[0];
+      if (file) {
+        const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+        photo_path = `${uid}/${Date.now()}.${ext}`;
+        const { error: ue } = await sb.storage.from("avatars").upload(photo_path, file, { upsert: true });
+        if (ue) throw ue;
+      }
+      const upd = {
+        full_name: document.getElementById("e_name-" + uid).value.trim(),
+        father_name: document.getElementById("e_father-" + uid).value.trim() || null,
+        mother_name: document.getElementById("e_mother-" + uid).value.trim() || null,
+        dob: document.getElementById("e_dob-" + uid).value || null,
+        admission_date: document.getElementById("e_adm-" + uid).value || null,
+        phone: document.getElementById("e_phone-" + uid).value.trim() || null,
+        address: document.getElementById("e_addr-" + uid).value.trim() || null,
+      };
+      if (photo_path) upd.photo_path = photo_path;
+      const { error } = await sb.from("profiles").update(upd).eq("id", uid);
+      if (error) throw error;
+      toast("Details save हो गए ✅"); renderUsers();
+    } catch (e) { toast("Error: " + e.message); }
   });
   document.getElementById("ns_add").onclick = async () => {
     const err = document.getElementById("ns_err");
@@ -492,6 +656,16 @@ async function renderUsers() {
         const { error: e2 } = await sb.from("enrollments").insert({ user_id: newId, class_id: +classId });
         if (e2) throw e2;
       }
+      const details = {
+        father_name: document.getElementById("ns_father").value.trim() || null,
+        mother_name: document.getElementById("ns_mother").value.trim() || null,
+        dob: document.getElementById("ns_dob").value || null,
+        admission_date: document.getElementById("ns_adm").value || new Date().toISOString().slice(0, 10),
+        phone: document.getElementById("ns_phone").value.trim() || null,
+        address: document.getElementById("ns_addr").value.trim() || null,
+      };
+      const { error: e3 } = await sb.from("profiles").update(details).eq("id", newId);
+      if (e3) throw e3;
       done.innerHTML = `<div class="card" style="background:#e2f4ec; border-color:#bfe6d2; margin:10px 0">
         <b>✅ Student बन गया!</b><br>ये जानकारी student को दे दीजिए —<br>
         📧 Email: <b>${esc(email)}</b><br>🔑 Password: <b>${esc(pass)}</b><br>
@@ -968,9 +1142,22 @@ async function renderMore() {
     testsGiven = (atts || []).length;
     avg = testsGiven ? Math.round((atts || []).reduce((s, a) => s + (+a.percent || 0), 0) / testsGiven) : 0;
   }
+  let myFees = [];
+  if (profile.role === "student" || profile.role === "parent") {
+    const { data } = await sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(12);
+    myFees = data || [];
+  }
+  let myPhoto = null;
+  if (profile.photo_path) {
+    const { data } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
+    myPhoto = data?.signedUrl || null;
+  }
+  const feeDueTotal = myFees.reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
   $app.innerHTML = `
     <div class="card" style="text-align:center">
-      <div class="avatar" style="width:76px; height:76px; font-size:30px; margin:4px auto 10px">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
+      ${myPhoto
+        ? `<img src="${myPhoto}" alt="" style="width:76px; height:76px; border-radius:50%; object-fit:cover; margin:4px auto 10px; display:block; border:3px solid var(--gold)">`
+        : `<div class="avatar" style="width:76px; height:76px; font-size:30px; margin:4px auto 10px">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>`}
       <div style="font-size:19px; font-weight:900; color:var(--navy)">${esc(profile.full_name)}</div>
       <div class="muted">${esc(me.email)}</div>
       <div style="margin-top:8px"><span class="pill gold">${esc(roleName(profile.role))}</span></div>
@@ -980,6 +1167,13 @@ async function renderMore() {
         <div class="stat"><div class="n">${classNames.length}</div><div class="l">Classes</div></div>
       </div>` : ""}
     </div>
+    ${(profile.role === "student" || profile.role === "parent") ? `
+    <div class="card"><h3>💰 ${profile.role === "parent" ? "बच्चे की Fees" : "मेरी Fees"}</h3>
+      ${feeDueTotal > 0 ? `<p style="color:var(--bad); font-weight:700">कुल बकाया: ₹${feeDueTotal.toLocaleString("en-IN")}</p>` : `<p class="ok" style="font-weight:700">कोई बकाया नहीं 🎉</p>`}
+      ${myFees.map(r => `<div class="item"><div><div class="t" style="font-size:14px">${esc(r.fee_type)} — ${esc(r.period)}</div>
+        <div class="s">₹${r.amount} में से ₹${r.paid_amount} जमा${r.due_date ? ` • आखिरी तारीख़: ${esc(r.due_date)}` : ""}</div></div>
+        <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span></div>`).join("") || `<p class="muted">अभी कोई fee record नहीं है।</p>`}
+    </div>` : ""}
     <div class="card">
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
