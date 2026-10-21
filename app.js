@@ -577,11 +577,22 @@ async function renderFees() {
   const [{ data: plans }, { data: records }, { data: studs }, { data: enrAll }] = await Promise.all([
     sb.from("fee_plans").select("*"),
     sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(60),
-    sb.from("profiles").select("id,full_name").eq("role", "student"),
+    sb.from("profiles").select("id,full_name,phone").eq("role", "student"),
     sb.from("enrollments").select("*"),
   ]);
   const planOf = (cid, type) => (plans || []).find(p => p.class_id === cid && p.fee_type === type)?.amount ?? "";
   const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
+  const phoneOf = (id) => (studs || []).find(s => s.id === id)?.phone || "";
+  const waLink = (phone, text) => {
+    const p = (phone || "").replace(/\D/g, "");
+    const num = p.length === 10 ? "91" + p : p;
+    return (num ? `https://wa.me/${num}` : "https://wa.me/") + `?text=${encodeURIComponent(text)}`;
+  };
+  const waReceipt = (r) => {
+    const due = +r.amount - +r.paid_amount;
+    const cls = (myClasses.find(c => c.id === r.class_id) || {}).name || "";
+    return `🙏 Namaste! Target Academy Coaching Centre — Fee Receipt ✅\n\nStudent: ${nameOf(r.student_id)}${cls ? ` (${cls})` : ""}\nFee: ${r.fee_type} — ${r.period}\nJama (Paid): ₹${r.paid_amount} / ₹${r.amount}` + (due > 0 ? `\nBaki (Due): ₹${due}` : `\nPoori fee jama ho gayi hai ✅`) + `\n\nDhanyavaad! 🙏`;
+  };
   const totalDue = (records || []).reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
   const totalPaid = (records || []).reduce((s, r) => s + +r.paid_amount, 0);
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -615,11 +626,13 @@ async function renderFees() {
       <div class="error" id="fg_err"></div>
       <button class="gold" id="fg_gen" style="width:100%">Create Fee for All Students</button>
       <label style="margin-top:14px">Recent Fee Records</label>
+      <p class="muted" style="margin:0 0 6px">Tap 📲 WhatsApp on any paid record to send the fee receipt on WhatsApp.</p>
       ${(records || []).map(r => `<div class="item"><div>
           <div class="t" style="font-size:14px">${esc(nameOf(r.student_id))}</div>
           <div class="s">${esc(r.fee_type)} • ${esc(r.period)} • ₹${r.paid_amount} of ₹${r.amount} paid${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">Due ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
         <span style="display:flex; gap:6px; align-items:center">
           <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span>
+          ${+r.paid_amount > 0 ? `<a class="light small" style="background:#e7f8ee; border-color:#25d366; color:#075e54; text-decoration:none" href="${waLink(phoneOf(r.student_id), waReceipt(r))}" target="_blank" rel="noopener">📲 WhatsApp</a>` : ""}
           ${r.status !== "paid" ? `<button class="light small" data-fpay="${r.id}:${+r.amount - +r.paid_amount}">+ Payment</button>` : ""}
         </span></div>`).join("") || `<p class="muted">No fee records yet.</p>`}
     </div>`;
