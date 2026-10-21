@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=15";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=16";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -98,6 +98,7 @@ function renderShell() {
   document.body.classList.remove("auth-mode");
   const navHTML = tabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
   const extraTabs = [
+    { id: "doubts", ic: "❓", label: "Doubts" },
     { id: "homework", ic: "📒", label: "Homework" },
     { id: "attendance", ic: "✅", label: "Attendance" },
     { id: "timetable", ic: "🗓️", label: "Timetable" },
@@ -112,7 +113,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: renderFeesStudent, doubts: renderDoubts, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -1348,6 +1349,7 @@ async function renderMore() {
     </div>` : ""}
     <div class="card">
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
+      <div class="menu-item" data-nav="doubts" style="cursor:pointer"><span class="mi">❓</span>Doubts<span class="arr">›</span></div>
       <div class="menu-item" data-nav="homework" style="cursor:pointer"><span class="mi">📒</span>Homework<span class="arr">›</span></div>
       <div class="menu-item" data-nav="attendance" style="cursor:pointer"><span class="mi">✅</span>Attendance<span class="arr">›</span></div>
       <div class="menu-item" data-nav="timetable" style="cursor:pointer"><span class="mi">🗓️</span>Timetable<span class="arr">›</span></div>
@@ -1362,6 +1364,103 @@ async function renderMore() {
 /* ---------------- Start ---------------- */
 sb.auth.onAuthStateChange(() => { /* boot handles routing */ });
 boot();
+
+/* ---------------- Doubts ---------------- */
+let doubtTab = "open"; // staff filter: open | answered | all
+async function renderDoubts() {
+  $app.innerHTML = `<div class="loading">लोड हो रहा है…</div>`;
+  const [{ data: doubts }, { data: subjects }] = await Promise.all([
+    sb.from("doubts").select("*").order("created_at", { ascending: false }),
+    sb.from("subjects").select("*").order("sort_order"),
+  ]);
+  const list = doubts || [];
+  const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
+  const nameMap = {};
+  if (isStaff() && list.length) {
+    const ids = [...new Set(list.flatMap(d => [d.student_id, d.answered_by]).filter(Boolean))];
+    const { data: profs } = await sb.from("profiles").select("id,full_name").in("id", ids);
+    (profs || []).forEach(p => nameMap[p.id] = p.full_name);
+  }
+  const statusPill = (d) => d.status === "answered"
+    ? `<span class="pill green">✅ जवाब मिल गया</span>`
+    : d.status === "closed" ? `<span class="pill">बंद</span>` : `<span class="pill gold">⏳ जवाब बाकी</span>`;
+  const doubtCard = (d, staffView) => `
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start">
+        <div style="font-weight:700; font-size:15.5px; line-height:1.45">❓ ${esc(d.question_text)}</div>
+        ${statusPill(d)}
+      </div>
+      <p class="muted" style="margin:6px 0 0">${staffView ? `👤 ${esc(nameMap[d.student_id] || "Student")} • ` : ""}${d.class_id ? esc(clsName(d.class_id)) + " • " : ""}${d.subject_id ? esc(subName(d.subject_id)) + " • " : ""}${new Date(d.created_at).toLocaleString("hi-IN")}</p>
+      ${d.answer_text ? `<div class="expl-box" style="margin-top:10px">💬 <b>जवाब${staffView && d.answered_by && nameMap[d.answered_by] ? ` — ${esc(nameMap[d.answered_by])}` : ""}:</b><br><span style="white-space:pre-wrap">${esc(d.answer_text)}</span>${d.answered_at ? `<br><span class="muted">${new Date(d.answered_at).toLocaleString("hi-IN")}</span>` : ""}</div>` : ""}
+      ${staffView && d.status === "open" ? `
+        <label style="margin-top:10px">अपना जवाब लिखें</label>
+        <textarea id="da-${d.id}" placeholder="समझाकर जवाब लिखें…"></textarea>
+        <div class="error" id="de-${d.id}"></div>
+        <button class="gold" data-dans="${d.id}" style="width:100%">जवाब भेजें</button>` : ""}
+    </div>`;
+
+  if (isStaff()) {
+    const open = list.filter(d => d.status === "open");
+    const answered = list.filter(d => d.status !== "open");
+    const shown = doubtTab === "open" ? open : doubtTab === "answered" ? answered : list;
+    $app.innerHTML = `
+      <div class="card"><h3>❓ Students के Doubts</h3>
+        <div class="row">
+          <button class="${doubtTab === "open" ? "" : "light"}" data-dtab="open">⏳ जवाब बाकी (${open.length})</button>
+          <button class="${doubtTab === "answered" ? "" : "light"}" data-dtab="answered">✅ जवाब दिए (${answered.length})</button>
+          <button class="${doubtTab === "all" ? "" : "light"}" data-dtab="all">सभी (${list.length})</button>
+        </div>
+        <p class="muted" style="margin:8px 0 0">Student जो सवाल पूछता है, वह यहाँ आता है। जवाब लिखकर भेजें — student को उसी समय दिख जाएगा।</p>
+      </div>
+      ${shown.map(d => doubtCard(d, true)).join("") || `<div class="card"><p class="muted">इस सूची में अभी कोई doubt नहीं है।</p></div>`}`;
+    $app.querySelectorAll("[data-dtab]").forEach(b => b.onclick = () => { doubtTab = b.dataset.dtab; renderDoubts(); });
+    $app.querySelectorAll("[data-dans]").forEach(b => b.onclick = async () => {
+      const id = +b.dataset.dans;
+      const txt = document.getElementById("da-" + id).value.trim();
+      const err = document.getElementById("de-" + id);
+      if (!txt) { err.textContent = "पहले जवाब लिखें"; return; }
+      const { error } = await sb.from("doubts").update({ answer_text: txt, answered_by: me.id, status: "answered", answered_at: new Date().toISOString() }).eq("id", id);
+      if (error) { err.textContent = error.message; return; }
+      toast("जवाब भेज दिया ✅"); renderDoubts();
+    });
+    return;
+  }
+
+  // Student view: ask + my doubts
+  const { data: enr } = await sb.from("enrollments").select("class_id").eq("user_id", me.id);
+  const enrolledIds = (enr || []).map(e => e.class_id);
+  const mySubjs = (subjects || []).filter(s => enrolledIds.includes(s.class_id));
+  $app.innerHTML = `
+    <div class="card"><h3>❓ अपना Doubt पूछें</h3>
+      <p class="muted" style="margin-top:0">पढ़ाई में जो समझ न आए, यहाँ लिखें — Sir जवाब देंगे।</p>
+      <label>Subject</label>
+      <select id="db_subject"><option value="">— सामान्य सवाल —</option>${mySubjs.map(s => `<option value="${s.id}">${esc(s.name)}${s.name_hi ? " • " + esc(s.name_hi) : ""} (${esc(clsName(s.class_id))})</option>`).join("")}</select>
+      <label>अपना सवाल लिखें</label>
+      <textarea id="db_q" placeholder="जैसे: प्रकाश का अपवर्तन किसे कहते हैं? उदाहरण के साथ समझाइए…"></textarea>
+      <div class="error" id="db_err"></div>
+      <button class="gold" id="db_ask" style="width:100%">Doubt भेजें</button>
+    </div>
+    <div class="card"><h3>🙋 मेरे Doubts (${list.length})</h3>
+      <p class="muted" style="margin:0">जवाब मिलते ही यहाँ ✅ दिखेगा।</p>
+    </div>
+    ${list.map(d => doubtCard(d, false)).join("") || `<div class="card"><p class="muted">अभी आपने कोई doubt नहीं पूछा।</p></div>`}`;
+  document.getElementById("db_ask").onclick = async () => {
+    const err = document.getElementById("db_err"); err.textContent = "";
+    const q = document.getElementById("db_q").value.trim();
+    if (!q) { err.textContent = "पहले अपना सवाल लिखें"; return; }
+    const sid = document.getElementById("db_subject").value;
+    const subj = mySubjs.find(s => s.id === +sid);
+    const { error } = await sb.from("doubts").insert({
+      student_id: me.id,
+      subject_id: subj ? subj.id : null,
+      class_id: subj ? subj.class_id : (enrolledIds[0] || null),
+      question_text: q,
+    });
+    if (error) { err.textContent = error.message; return; }
+    toast("Doubt भेज दिया ❓ — जवाब का इंतज़ार करें"); renderDoubts();
+  };
+}
 
 /* ---------------- Homework ---------------- */
 let hwClassId = null, hwOpenId = null, hwSubmitId = null;
