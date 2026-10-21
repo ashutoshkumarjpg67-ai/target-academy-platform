@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=3";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
