@@ -419,7 +419,7 @@ async function renderHome() {
   }
 
   // ---- Staff / Admin dashboard ----
-  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { data: profs }] = await Promise.all([
+  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { data: profs }, { count: dc }, { data: sLives }, { data: feeRows }] = await Promise.all([
     sb.from("profiles").select("*", { count: "exact", head: true }).eq("role", "student"),
     sb.from("questions").select("*", { count: "exact", head: true }),
     sb.from("tests").select("*", { count: "exact", head: true }),
@@ -427,10 +427,20 @@ async function renderHome() {
     sb.from("test_attempts").select("*").neq("status", "in_progress").order("submitted_at", { ascending: false }).limit(4),
     sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(3),
     sb.from("profiles").select("id,full_name"),
+    sb.from("doubts").select("*", { count: "exact", head: true }).eq("status", "open"),
+    sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
+    sb.from("fee_records").select("paid_amount").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
   ]);
   const nameOf = (id) => (profs || []).find(p => p.id === id)?.full_name || "Student";
+  let greetPhoto = null;
+  if (profile.photo_path) {
+    const { data: sg } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
+    greetPhoto = sg?.signedUrl || null;
+  }
+  const monthFees = (feeRows || []).reduce((s, r) => s + (+r.paid_amount || 0), 0);
   $app.innerHTML = `
-    ${greetHTML("हर बच्चे की सफलता, हमारी पहचान 🌟")}
+    ${greetHTML("हर बच्चे की सफलता, हमारी पहचान 🌟", greetPhoto)}
+    <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="Notes, videos, PDF खोजें…"><button class="small gold" id="homeGo">खोजें</button></div>
     ${qaHTML([
       { go: "manage", ic: "🏫", label: "Classes", bg: "#e8effe" },
       { go: "tests", ic: "📝", label: "Tests", bg: "#fde8e8" },
@@ -445,6 +455,22 @@ async function renderHome() {
         <div class="stat"><div class="si" style="background:#fdf3d7">❓</div><div class="n">${qc ?? 0}</div><div class="l">Questions</div></div>
         <div class="stat"><div class="si" style="background:#fde8e8">📝</div><div class="n">${tc ?? 0}</div><div class="l">Tests</div></div>
       </div></div>
+    <div class="card"><h3>📌 आज का काम</h3>
+      <div class="frow" data-go="doubts" style="cursor:pointer"><div class="fic" style="background:#fdecea">❓</div>
+        <div style="flex:1"><div class="ft">जवाब बाकी Doubts</div><div class="fs">Students के सवाल जिनका जवाब देना है</div></div>
+        <span class="pill ${dc ? "red" : "green"}">${dc ?? 0}</span></div>
+      <div class="frow" data-go="fees" style="cursor:pointer"><div class="fic" style="background:#e2f4ec">💰</div>
+        <div style="flex:1"><div class="ft">इस महीने की Fee जमा</div><div class="fs">Fees section में पूरी detail</div></div>
+        <span class="pill green">₹${monthFees.toLocaleString("en-IN")}</span></div>
+      <div class="frow" data-go="live" style="cursor:pointer"><div class="fic" style="background:#e8f1fe">📺</div>
+        <div style="flex:1"><div class="ft">आने वाली Live Classes</div><div class="fs">${(sLives || []).length ? "अगली: " + esc(sLives[0].title) : "कोई scheduled नहीं है"}</div></div>
+        <span class="pill gold">${(sLives || []).length}</span></div>
+    </div>
+    ${(sLives || []).length ? `<div class="card"><h3>📺 Live Classes</h3>
+      ${(sLives || []).slice(0, 3).map(l => { const isLive = new Date(l.starts_at).getTime() <= Date.now(); return `<div class="frow"><div class="fic" style="background:#fdecea">📺</div>
+        <div style="flex:1"><div class="ft">${esc(l.title)}</div><div class="fs">${esc((myClasses.find(c => c.id === l.class_id) || {}).name || "")} • 🕐 ${new Date(l.starts_at).toLocaleString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div></div>
+        ${isLive ? `<button class="gold small" data-join="${esc(l.meet_link)}">▶ Join करें</button>` : `<span class="pill gold">जल्द आ रही है</span>`}</div>`; }).join("")}
+    </div>` : ""}
     <div class="card"><h3>🕘 ताज़ा गतिविधि</h3>
       ${(recentUsers || []).map(u => `<div class="act"><div class="ai" style="background:#e8effe">👤</div>
         <div><div class="at">नया खाता: ${esc(u.full_name)} (${esc(u.role)})</div>
@@ -457,6 +483,11 @@ async function renderHome() {
       ${!(recentUsers || []).length && !(recentAttempts || []).length ? `<p>अभी कोई गतिविधि नहीं है।</p>` : ""}
     </div>`;
   wireQA();
+  const hq2 = document.getElementById("homeQ");
+  const goSearch2 = () => { studyQuery = (hq2?.value || "").trim(); studyLesson = null; tab = "study"; renderShell(); };
+  document.getElementById("homeGo")?.addEventListener("click", goSearch2);
+  hq2?.addEventListener("keydown", (e) => { if (e.key === "Enter") goSearch2(); });
+  $app.querySelectorAll("[data-join]").forEach(b => b.onclick = () => window.open(b.dataset.join, "_blank"));
 }
 
 /* ---------------- Manage: academic structure (staff) ---------------- */
