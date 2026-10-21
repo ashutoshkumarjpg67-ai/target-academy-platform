@@ -81,6 +81,22 @@ function enhanceFilePicker(input, { imageOnly = false } = {}) {
   input.addEventListener("change", () => pick(input.files[0]));
 }
 
+/* ---------------- Photo viewer (click → बड़ा) ---------------- */
+function viewPhoto(url) {
+  if (!url) return;
+  closePhoto();
+  const d = document.createElement("div");
+  d.className = "lightbox"; d.id = "photoLightbox";
+  d.innerHTML = `<button class="lb-x" aria-label="बंद करें">✕</button><img src="${url}" alt="photo">`;
+  d.onclick = () => closePhoto();
+  document.body.appendChild(d);
+}
+function closePhoto() { const d = document.getElementById("photoLightbox"); if (d) d.remove(); }
+document.addEventListener("click", (e) => {
+  const t = e.target.closest ? e.target.closest("[data-zoom]") : null;
+  if (t) viewPhoto(t.dataset.zoom);
+});
+
 /* ---------------- Notifications ---------------- */
 async function notifyUsers(userIds, kind, title, body) {
   try {
@@ -153,6 +169,7 @@ function renderAuth(mode = "login") {
   $tabbar.classList.add("hidden"); $logout.classList.add("hidden"); if ($bell) $bell.classList.add("hidden");
   $app.innerHTML = `
     <div class="hero">
+      <img src="icon.svg" alt="Target Academy logo" class="auth-logo" data-zoom="icon.svg">
       <span class="badge">ADMISSION OPEN</span>
       <h1>पढ़ाई अब हर घर तक 📚</h1>
       <p>Target Academy के notes, study material और online tests — अब एक ही app में। Login करके अपनी class की पढ़ाई शुरू करें।</p>
@@ -715,7 +732,7 @@ async function renderUsers() {
     ${(users || []).map(u => `
       <div class="item" style="align-items:flex-start">
         ${u.photo_path && urlMap[u.photo_path]
-          ? `<img src="${urlMap[u.photo_path]}" alt="" style="width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto">`
+          ? `<img src="${urlMap[u.photo_path]}" alt="" class="zoomable" title="बड़ा देखने के लिए दबाएँ" data-zoom="${urlMap[u.photo_path]}" style="width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto">`
           : `<div class="avatar" style="width:44px; height:44px; font-size:17px">${esc((u.full_name || "?").trim()[0].toUpperCase())}</div>`}
         <div style="flex:1">
           <div class="t">${esc(u.full_name)} ${u.id === me.id ? '<span class="pill gold">आप</span>' : ""}</div>
@@ -1483,7 +1500,7 @@ async function renderMore() {
   $app.innerHTML = `
     <div class="card" style="text-align:center">
       ${myPhoto
-        ? `<img src="${myPhoto}" alt="" style="width:76px; height:76px; border-radius:50%; object-fit:cover; margin:4px auto 10px; display:block; border:3px solid var(--gold)">`
+        ? `<img src="${myPhoto}" alt="" class="zoomable" title="बड़ा देखने के लिए दबाएँ" data-zoom="${myPhoto}" style="width:76px; height:76px; border-radius:50%; object-fit:cover; margin:4px auto 10px; display:block; border:3px solid var(--gold)">`
         : `<div class="avatar" style="width:76px; height:76px; font-size:30px; margin:4px auto 10px">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>`}
       <div style="font-size:19px; font-weight:900; color:var(--navy)">${esc(profile.full_name)}</div>
       <div class="muted">${esc(me.email)}</div>

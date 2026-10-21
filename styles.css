@@ -365,3 +365,12 @@ body.auth-mode #sidebar{display:none !important}
 .fp-btns{display:flex;gap:8px}
 .fp-btns .light{flex:1}
 .fp-name{font-size:12px;margin-top:5px}
+
+/* v23: logo image + photo lightbox */
+.logo{padding:0;overflow:hidden;background:var(--navy)}
+.logo img{width:100%;height:100%;display:block}
+.auth-logo{width:84px;height:84px;border-radius:20px;display:block;margin:0 auto 12px;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:zoom-in}
+.zoomable{cursor:zoom-in}
+.lightbox{position:fixed;inset:0;background:rgba(4,12,30,.93);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;cursor:zoom-out}
+.lightbox img{max-width:94vw;max-height:88vh;border-radius:14px;border:3px solid var(--gold);object-fit:contain;background:#0b2a5b}
+.lightbox .lb-x{position:absolute;top:14px;right:16px;width:42px;height:42px;border-radius:50%;border:none;background:rgba(255,255,255,.14);color:#fff;font-size:19px;cursor:pointer}
