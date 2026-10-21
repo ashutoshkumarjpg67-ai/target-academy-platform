@@ -1,5 +1,5 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=9";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=10";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $app = document.getElementById("app");
@@ -617,8 +617,9 @@ async function renderUsers() {
     const name = b.dataset.delname;
     if (!confirm(`"${name}" को हटाएँ? उसकी fees, results, attendance, submissions — सारा data हट जाएगा और वह फिर login नहीं कर पाएगा।`)) return;
     if (!confirm("पक्का? यह वापस नहीं होगा।")) return;
-    const { error } = await sb.from("profiles").delete().eq("id", b.dataset.deluser);
+    const { data: gone, error } = await sb.from("profiles").delete().eq("id", b.dataset.deluser).select("id");
     if (error) return toast("Error: " + error.message);
+    if (!gone || !gone.length) return toast("❌ नहीं हटा — database ने रोक दिया, मुझे बताइए");
     toast("User हटा दिया गया 🗑"); renderUsers();
   });
   $app.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
