@@ -1463,10 +1463,10 @@ async function renderTests() {
     const live = mine.find(a => a.status === "in_progress");
     return `<div class="item"><div>
         <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} min • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>My score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} min • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
-        <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
+        <span class="pill ${t.status === "published" ? "green" : "gold"}">${t.status === "published" ? "उपलब्ध • Live" : t.status === "draft" ? "ड्राफ़्ट • Draft" : esc(t.status)}</span>
         ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
             <button class="light small" data-tpreview="${t.id}">👁 Preview</button>
             <button class="light small" data-tinst="${t.id}:${t.instant_feedback ? 1 : 0}" title="Turn Practice Mode on/off">⚡ ${t.instant_feedback ? "ON" : "OFF"}</button>
@@ -1474,8 +1474,8 @@ async function renderTests() {
             <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Make Draft" : "Publish"}</button>
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
           : t.status === "published" ? (live
-            ? `<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
-            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake Test (${submitted.length}/${t.max_attempts})` : "🔁 Retake Test") : "▶ Start Test"}</button>` : ""}`) : ""}
+            ? `<button class="gold small" data-tstart="${t.id}">▶ आगे बढ़ें • Continue</button>`
+            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 परिणाम देखें</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 फिर से दें (${submitted.length}/${t.max_attempts})` : "🔁 फिर से दें") : "▶ टेस्ट शुरू करें"}</button>` : ""}`) : ""}
       </div></div>`;
   };
   const groupedTests = () => {
@@ -1517,8 +1517,8 @@ async function renderTests() {
       <button class="gold" id="t_create" style="width:100%">Create Test (Draft)</button>
       <p class="muted">The test will first be created as a Draft — press Publish in the list to open it for students.</p>
     </details>` : ""}
-    <div class="card"><h3>📝 ${isStaff() ? "All Tests" : "My Tests"}</h3>
-    <p class="muted" style="margin:0">Tests are grouped by subject — open a subject to see its tests.</p></div>
+    <div class="card"><h3>📝 ${isStaff() ? "All Tests" : "मेरे टेस्ट — My Tests"}</h3>
+    <p class="muted" style="margin:0">${isStaff() ? "Tests are grouped by subject — open a subject to see its tests." : "टेस्ट विषय के हिसाब से दिए गए हैं — विषय खोलकर अपना टेस्ट चुनें।"}</p></div>
     ${groupedTests()}
     <div id="tResults"></div>`;
 
@@ -1664,8 +1664,13 @@ async function startTest(test, myAttempts) {
   const { data: qs, error } = await sb.rpc("get_test_questions", { p_test_id: test.id });
   if (error) return toast("Questions not found: " + error.message);
   const { data: saved } = await sb.from("attempt_responses").select("*").eq("attempt_id", attempt.id);
+  let subjName = "";
+  if (test.subject_id) {
+    const { data: sj } = await sb.from("subjects").select("name, name_hi").eq("id", test.subject_id).maybeSingle();
+    if (sj) subjName = sj.name + (sj.name_hi ? " • " + sj.name_hi : "");
+  }
   run = {
-    test, attempt, qs: qs || [], idx: 0,
+    test, attempt, qs: qs || [], idx: 0, screen: "run", subjName,
     answers: new Map((saved || []).map(r => [r.question_id, r.answer])),
     review: new Set((saved || []).filter(r => r.marked_for_review).map(r => r.question_id)),
     feedback: new Map(),
@@ -1716,8 +1721,49 @@ function updateRunMeta() {
   const n = runAnsweredCount(), total = run.qs.length;
   const c = document.getElementById("runCount");
   if (c) c.textContent = `${n} of ${total} answered`;
+  const pos = document.getElementById("runPos");
+  if (pos) pos.textContent = `प्रश्न ${run.idx + 1} / ${total}`;
   const bar = document.getElementById("runProg");
-  if (bar) bar.style.width = (total ? (n / total) * 100 : 0) + "%";
+  if (bar) bar.style.width = (total ? ((run.idx + 1) / total) * 100 : 0) + "%";
+}
+function qAnswered(q) {
+  const a = run.answers.get(q.question_id);
+  return a !== undefined && a !== null && a[0] !== undefined && a[0] !== null && String(a[0]).trim() !== "";
+}
+function palGridHTML() {
+  return `<div class="pal-grid">${run.qs.map((q, i) => {
+    const cls = ["pal-btn", qAnswered(q) ? "ans" : "", run.review.has(q.question_id) ? "mk" : "", i === run.idx ? "cur" : ""].join(" ");
+    return `<button class="${cls}" data-pal="${i}">${i + 1}${run.review.has(q.question_id) ? `<span class="pal-dot"></span>` : ""}</button>`;
+  }).join("")}</div>
+  <div class="pal-legend">
+    <span><i class="lg ans"></i>उत्तर दिया</span>
+    <span><i class="lg mk"></i>चिह्नित</span>
+    <span><i class="lg cur"></i>वर्तमान प्रश्न</span>
+    <span><i class="lg"></i>बाकी</span>
+  </div>`;
+}
+function flushCurrentInput() {
+  if (!run) return;
+  const q = run.qs[run.idx];
+  if (!q) return;
+  const inp = document.querySelector(`[data-fillq="${q.question_id}"], [data-textq="${q.question_id}"]`);
+  if (inp) {
+    const cur = (run.answers.get(q.question_id) || [])[0];
+    if (String(inp.value ?? "") !== String(cur ?? "")) onTextAnswer(q.question_id, inp.value);
+  }
+}
+function goQ(i) {
+  if (!run) return;
+  flushCurrentInput();
+  run.idx = Math.max(0, Math.min(run.qs.length - 1, i));
+  run.screen = "run";
+  renderRun();
+  window.scrollTo({ top: 0 });
+}
+function confirmSubmit() {
+  if (!run) return;
+  const n = runAnsweredCount(), total = run.qs.length;
+  if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
 }
 const MATCH_PREFIX = "Match the following";
 function isMatchQ(q) { return q.qtype === "mcq_single" && (q.question_text || "").startsWith(MATCH_PREFIX); }
@@ -1828,42 +1874,98 @@ async function onTextAnswer(qid, value) {
   await saveAnswer(qid);
   updateRunMeta();
 }
-function renderRun() {
+function runHeadHTML() {
   const { test, qs } = run;
-  const secs = qSections();
-  const secHTML = secs.map(sec => {
-    const marks = sec.items.reduce((s, x) => s + (+x.marks || 0), 0);
-    const inner = sec.kind === "match"
-      ? sec.items.map((q, i) => matchRowHTML(q, i + 1)).join("")
-      : sec.items.map((q, i) => qBlockHTML(q, i + 1)).join("");
-    return `<div class="card qsec-card">
-      <div class="qsec"><span>${sec.label}</span><span class="qsec-marks">${marks} mark${marks === 1 ? "" : "s"}</span></div>
-      ${inner}
-    </div>`;
-  }).join("");
-  $app.innerHTML = `
-    <div class="testbar">
-      <div class="testbar-row">
-        <span class="tb-title">${esc(test.title)}</span>
-        <span class="cnt" id="runCount"></span>
+  return `<div class="card run-head">
+      <div class="run-head-top">
+        <div style="flex:1; min-width:0">
+          <div class="run-title">${esc(test.title)}</div>
+          <div class="run-meta">${run.subjName ? esc(run.subjName) + " • " : ""}${qs.length} प्रश्न • ${test.duration_minutes} मिनट${test.instant_feedback ? " • ⚡ Practice Mode" : ""}</div>
+        </div>
         <span class="timer-pill" id="tTimer">⏱ --:--</span>
       </div>
-      <div class="prog" style="margin-top:8px"><div id="runProg"></div></div>
-    </div>
-    <div class="card" style="padding:10px 14px"><p class="muted" style="margin:0">${test.instant_feedback
-      ? "⚡ <b>Practice Mode:</b> as soon as you choose an option for a question, ✅ correct / ❌ wrong + the explanation will appear there itself, and that answer will be locked. Fill-in and written answers are saved as you type."
-      : "Answers are saved automatically as you go. ✅ Correct / ❌ wrong and the 💡 explanation will be shown in the result after you submit."}</p></div>
-    ${secHTML}
-    <div class="card" style="margin-bottom:26px">
-      <button class="gold" id="submitTest" style="width:100%">✅ Submit Test</button>
-      <p class="muted" style="text-align:center; margin:8px 0 0">Answers cannot be changed after submitting.</p>
+      <div class="run-prog-row"><span id="runPos">प्रश्न ${run.idx + 1} / ${qs.length}</span><span class="run-cnt" id="runCount"></span></div>
+      <div class="prog prog-thin"><div id="runProg"></div></div>
     </div>`;
-  run.qs.forEach(q => bindBlockEl(document.getElementById("qq-" + q.question_id), q));
-  document.getElementById("submitTest").onclick = () => {
-    const n = runAnsweredCount(), total = run.qs.length;
-    if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
+}
+function renderRun() {
+  if (run.screen === "review") { renderRunReview(); return; }
+  const { test, qs } = run;
+  const total = qs.length;
+  const q = qs[run.idx];
+  const n = run.idx + 1;
+  const block = isMatchQ(q) ? matchRowHTML(q, n) : qBlockHTML(q, n);
+  const last = run.idx === total - 1;
+  $app.innerHTML = `
+    ${runHeadHTML()}
+    <div class="card qcard">
+      <p class="muted run-hint">${test.instant_feedback
+        ? "⚡ <b>Practice Mode:</b> उत्तर चुनते ही ✅ सही / ❌ गलत + व्याख्या यहीं दिखेगी और वह उत्तर lock हो जाएगा। Fill-in और लिखित उत्तर लिखते ही save हो जाते हैं।"
+        : "उत्तर अपने आप save होते रहते हैं। ✅ सही / ❌ गलत और 💡 व्याख्या Submit करने के बाद परिणाम में दिखेगी।"}</p>
+      ${block}
+      <label class="checkrow markrow"><input type="checkbox" id="markRev" ${run.review.has(q.question_id) ? "checked" : ""}><span>इस प्रश्न को समीक्षा के लिए चिह्नित करें <span class="muted">(Mark for Review)</span></span></label>
+    </div>
+    <div class="run-nav">
+      <button class="light" id="qPrev" ${run.idx === 0 ? "disabled" : ""}>← पिछला</button>
+      <button class="light" id="qPal">🔢 प्रश्न सूची</button>
+      ${last ? `<button class="gold" id="qReview">समीक्षा करें →</button>` : `<button class="gold" id="qNext">अगला →</button>`}
+    </div>
+    <div class="pal-overlay hidden" id="palOverlay">
+      <div class="pal-sheet">
+        <div class="pal-head"><b>🔢 सभी प्रश्न — Question List</b><button class="light small" id="palClose">✕ बंद करें</button></div>
+        <div id="palGrid">${palGridHTML()}</div>
+        <button class="gold" id="palReview" style="width:100%; margin-top:14px">📋 समीक्षा करके Test जमा करें</button>
+      </div>
+    </div>`;
+  bindBlockEl(document.getElementById("qq-" + q.question_id), q);
+  document.getElementById("markRev").onchange = async (e) => {
+    if (e.target.checked) run.review.add(q.question_id); else run.review.delete(q.question_id);
+    await saveAnswer(q.question_id);
   };
+  const prev = document.getElementById("qPrev");
+  if (prev) prev.onclick = () => goQ(run.idx - 1);
+  const next = document.getElementById("qNext");
+  if (next) next.onclick = () => goQ(run.idx + 1);
+  const rev = document.getElementById("qReview");
+  if (rev) rev.onclick = () => { flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
+  const ov = document.getElementById("palOverlay");
+  const bindPal = () => ov.querySelectorAll("[data-pal]").forEach(b => b.onclick = () => goQ(+b.dataset.pal));
+  bindPal();
+  document.getElementById("qPal").onclick = () => {
+    document.getElementById("palGrid").innerHTML = palGridHTML();
+    bindPal();
+    ov.classList.remove("hidden");
+  };
+  document.getElementById("palClose").onclick = () => ov.classList.add("hidden");
+  ov.onclick = (e) => { if (e.target === ov) ov.classList.add("hidden"); };
+  document.getElementById("palReview").onclick = () => { flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
   updateRunMeta();
+  tickTimer();
+}
+function renderRunReview() {
+  const { qs } = run;
+  const total = qs.length;
+  const ans = runAnsweredCount();
+  const mk = run.review.size;
+  $app.innerHTML = `
+    ${runHeadHTML()}
+    <div class="card">
+      <h3 style="margin-top:0">📋 समीक्षा — Review</h3>
+      <div class="stats rev-stats">
+        <div class="stat"><div class="n">${total}</div><div class="l">कुल प्रश्न</div></div>
+        <div class="stat"><div class="n">${ans}</div><div class="l">उत्तर दिए</div></div>
+        <div class="stat"><div class="n">${total - ans}</div><div class="l">बचे हुए</div></div>
+        <div class="stat"><div class="n">${mk}</div><div class="l">चिह्नित</div></div>
+      </div>
+      <div id="palGrid">${palGridHTML()}</div>
+      <p class="muted">किसी नंबर पर tap करके उस प्रश्न पर वापस जा सकते हैं।</p>
+      <button class="gold" id="finalSubmit" style="width:100%">✅ Test जमा करें — Submit Test</button>
+      <button class="light" id="backToQ" style="width:100%; margin-top:8px">← प्रश्नों पर वापस जाएँ</button>
+      <p class="muted" style="text-align:center; margin:8px 0 0">जमा करने के बाद उत्तर बदले नहीं जा सकेंगे।</p>
+    </div>`;
+  $app.querySelectorAll("[data-pal]").forEach(b => b.onclick = () => goQ(+b.dataset.pal));
+  document.getElementById("finalSubmit").onclick = () => confirmSubmit();
+  document.getElementById("backToQ").onclick = () => { run.screen = "run"; renderRun(); window.scrollTo({ top: 0 }); };
   tickTimer();
 }
 async function finishTest(auto) {
@@ -1937,32 +2039,70 @@ async function showResult(attemptId, test) {
   const submittedCount = myTestAttempts.filter(a => a.status !== "in_progress").length;
   const canRestart = !!test && !isStaff() && (!test.max_attempts || submittedCount < test.max_attempts);
   revState = error ? null : { rows: (review || []).map((r, i) => ({ ...r, _i: i })), filter: "all", page: 0 };
+  let resSubj = "";
+  if (test && test.subject_id) {
+    const { data: sj } = await sb.from("subjects").select("name, name_hi").eq("id", test.subject_id).maybeSingle();
+    if (sj) resSubj = sj.name + (sj.name_hi ? " • " + sj.name_hi : "");
+  }
+  const resClass = test ? ((myClasses.find(c => c.id === test.class_id) || {}).name || "") : "";
+  let cntR = null;
+  if (revState) {
+    const rows = revState.rows;
+    const given = (r) => { const a = Array.isArray(r.my_answer) ? r.my_answer[0] : r.my_answer; return a !== null && a !== undefined && String(a).trim() !== ""; };
+    cntR = {
+      right: rows.filter(r => r.is_correct === true).length,
+      wrong: rows.filter(r => r.is_correct === false).length,
+      skip: rows.filter(r => !given(r)).length,
+      pend: rows.filter(r => r.is_correct === null && given(r)).length,
+    };
+  }
+  const fmtDur43 = (s) => { s = Math.max(0, Math.round(+s || 0)); const m = Math.floor(s / 60), ss = s % 60; return m ? (ss ? `${m} मिनट ${ss} सेकंड` : `${m} मिनट`) : `${ss} सेकंड`; };
   const pct = attempt ? +attempt.percent || 0 : 0;
   const C = 2 * Math.PI * 44;
   $app.innerHTML = `
     <div class="card">
-      <div class="ring-wrap">
+      <div class="ring-wrap" style="flex-wrap:wrap">
+        <div class="trophy-c ${attempt?.passed ? "" : "fail"}">${attempt?.passed ? "🏆" : "💪"}</div>
+        <div style="flex:1; min-width:170px">
+          <h3 style="margin:0 0 4px">${attempt?.passed ? "आप सफल रहे! 🎉" : "इस बार सफल नहीं हुए"}</h3>
+          <div style="font-size:27px; font-weight:900; color:var(--navy)">${attempt?.score} / ${attempt?.max_score} <span style="font-size:14px; color:var(--muted)">नंबर</span></div>
+          <p class="muted" style="margin:2px 0 0">${attempt?.passed ? "बहुत बढ़िया! ऐसे ही मेहनत जारी रखें।" : "कोई बात नहीं — सभी उत्तर देखकर सीखें और फिर प्रयास करें।"}</p>
+        </div>
         <div class="ring">
           <svg width="104" height="104"><circle cx="52" cy="52" r="44" stroke="#e6ecf6" stroke-width="10" fill="none"/>
           <circle cx="52" cy="52" r="44" stroke="${attempt?.passed ? "#0e9f6e" : "#d64541"}" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C - (C * pct) / 100}"/></svg>
           <div class="ring-c">${pct}%<br><span style="font-size:11px; color:var(--muted)">${attempt?.passed ? "PASS ✅" : "FAIL ❌"}</span></div>
         </div>
-        <div>
-          <h3 style="margin-bottom:4px">${esc(test ? test.title : "Test Result")}</h3>
-          <p>Score: <b>${attempt?.score} / ${attempt?.max_score}</b><br>Time taken: ${Math.round((attempt?.time_taken_seconds || 0) / 60)} min<br>Status: ${attempt?.passed ? "You passed 🎉" : "No problem — keep practising 💪"}</p>
-        </div>
       </div>
     </div>
+    <div class="card"><h3 style="margin-top:0">📋 टेस्ट का विवरण</h3>
+      <div class="drow"><span class="dl">टेस्ट का नाम</span><span class="dv">${esc(test ? test.title : "Test Result")}</span></div>
+      ${resClass ? `<div class="drow"><span class="dl">कक्षा</span><span class="dv">${esc(resClass)}</span></div>` : ""}
+      ${resSubj ? `<div class="drow"><span class="dl">विषय</span><span class="dv">${esc(resSubj)}</span></div>` : ""}
+      ${attempt?.time_taken_seconds ? `<div class="drow"><span class="dl">समय लगा</span><span class="dv">${fmtDur43(attempt.time_taken_seconds)}</span></div>` : ""}
+      ${attempt?.submitted_at ? `<div class="drow"><span class="dl">तारीख़</span><span class="dv">${new Date(attempt.submitted_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span></div>` : ""}
+    </div>
+    ${cntR ? `<div class="card"><h3 style="margin-top:0">📊 विस्तृत परिणाम</h3>
+      <div class="stats">
+        <div class="stat"><div class="n" style="color:var(--ok)">${cntR.right}</div><div class="l">✅ सही उत्तर</div></div>
+        <div class="stat"><div class="n" style="color:var(--bad)">${cntR.wrong}</div><div class="l">❌ गलत उत्तर</div></div>
+        <div class="stat"><div class="n">${cntR.skip}</div><div class="l">⏭ छोड़े गए</div></div>
+      </div>
+      ${cntR.pend ? `<p class="muted" style="margin:10px 0 0">⏳ ${cntR.pend} लिखित उत्तर शिक्षक जाँचेंगे — उनके नंबर बाद में जुड़ सकते हैं।</p>` : ""}
+    </div>` : ""}
     <div class="row" style="margin:12px 0">
-      <button class="light" id="resBack">← Back to Tests</button>
-      ${canRestart ? `<button class="gold" id="resRestart">🔁 Retake Test (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
+      <button class="light" id="resBack">← टेस्ट सूची</button>
+      ${!error ? `<button class="gold" id="resAll">📖 सभी उत्तर देखें</button>` : ""}
+      ${canRestart ? `<button class="gold" id="resRestart">🔁 फिर से दें (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
     </div>
     ${error ? `<div class="card"><p>A detailed review is not available right now (${esc(error.message)}). Your result is shown above.</p></div>`
     : `<div id="revBox"></div>`}
-    <button class="light" id="resBack2" style="width:100%">← Back to Tests</button>`;
+    <button class="light" id="resBack2" style="width:100%">← टेस्ट सूची पर वापस</button>`;
   const goBack = () => { tab = "tests"; renderShell(); };
   document.getElementById("resBack").onclick = goBack;
   document.getElementById("resBack2").onclick = goBack;
+  const resAll = document.getElementById("resAll");
+  if (resAll) resAll.onclick = () => { const b = document.getElementById("revBox"); if (b) b.scrollIntoView({ behavior: "smooth", block: "start" }); };
   if (canRestart) document.getElementById("resRestart").onclick = () => startTest(test, myTestAttempts);
   if (!error) drawReview();
   window.scrollTo({ top: 0 });

@@ -633,3 +633,44 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .qa-grid3 .qa{margin:0}
 .side-group{text-transform:none; letter-spacing:.4px; font-size:11.5px}
 #tabbar button{font-size:12px}
+
+/* ---------- v43: one-question Test Run + Review + Result (photo 5 & 6) ---------- */
+.run-head{padding:14px 16px}
+.run-head-top{display:flex; align-items:flex-start; gap:10px}
+.run-title{font-weight:900; font-size:17.5px; color:var(--navy); line-height:1.35}
+.run-meta{color:var(--muted); font-size:13.5px; margin-top:3px; font-weight:600}
+.run-prog-row{display:flex; justify-content:space-between; align-items:center; margin-top:12px; font-weight:800; color:var(--navy); font-size:14px}
+.run-cnt{color:var(--muted); font-weight:700; font-size:13px}
+.prog-thin{height:6px; margin-top:6px}
+.qcard .qblock{border-bottom:none; padding:4px 0 2px}
+.qcard .mrow{display:block}
+.qcard .mrow .mlabel{padding-top:0; margin-bottom:10px}
+.qcard .mrow select{width:100%}
+.run-hint{margin:0 0 8px; font-size:13.5px}
+.markrow{margin-top:14px; border-top:1.5px dashed var(--line); border-bottom:none; padding:12px 0 2px; font-weight:700; color:var(--navy)}
+.run-nav{display:flex; gap:10px; margin-bottom:26px}
+.run-nav button{flex:1; padding:13px 8px; font-size:15px}
+.run-nav button:disabled{opacity:.45}
+.pal-overlay{position:fixed; inset:0; background:rgba(8,28,58,.55); z-index:300; display:flex; align-items:flex-end; justify-content:center}
+.pal-sheet{background:#fff; width:100%; max-width:560px; max-height:84vh; overflow:auto; border-radius:18px 18px 0 0; padding:16px; box-shadow:0 -8px 30px rgba(8,28,58,.3)}
+.pal-head{display:flex; justify-content:space-between; align-items:center; color:var(--navy); font-size:16px}
+.pal-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(46px,1fr)); gap:8px; margin-top:12px}
+.pal-btn{position:relative; padding:11px 0; border-radius:11px; border:1.5px solid #dbe3f0; background:#f4f7fc; font-weight:800; color:var(--navy); font-size:15px}
+.pal-btn.ans{background:#e6f7f0; border-color:var(--ok); color:#0b6b43}
+.pal-btn.mk{border-color:#f0a13c; box-shadow:inset 0 0 0 1.5px #f0a13c}
+.pal-btn.cur{outline:3px solid var(--navy); outline-offset:1px}
+.pal-dot{position:absolute; top:4px; right:4px; width:8px; height:8px; border-radius:50%; background:#f0a13c}
+.pal-legend{display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:12px; font-size:12.5px; color:var(--muted); font-weight:600}
+.pal-legend .lg{display:inline-block; width:12px; height:12px; border-radius:4px; border:1.5px solid #dbe3f0; background:#f4f7fc; vertical-align:-1px; margin-right:5px}
+.pal-legend .lg.ans{background:#e6f7f0; border-color:var(--ok)}
+.pal-legend .lg.mk{border-color:#f0a13c}
+.pal-legend .lg.cur{outline:2px solid var(--navy)}
+.rev-stats{grid-template-columns:repeat(4,1fr)}
+.rev-stats .stat .n{font-size:20px}
+.rev-stats .stat .l{font-size:11px}
+.trophy-c{width:64px; height:64px; border-radius:50%; background:#e6f7f0; display:grid; place-items:center; font-size:32px; flex:0 0 auto}
+.trophy-c.fail{background:#fdf3d7}
+.drow{display:flex; justify-content:space-between; align-items:baseline; gap:14px; padding:9px 0; border-bottom:1px solid var(--line)}
+.drow:last-child{border-bottom:none; padding-bottom:2px}
+.drow .dl{color:var(--muted); font-weight:600; white-space:nowrap}
+.drow .dv{font-weight:800; color:var(--navy); text-align:right}
