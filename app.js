@@ -271,6 +271,7 @@ function renderShell() {
     { id: "homework", ic: "📒", label: "Homework" },
     { id: "attendance", ic: "✅", label: "Attendance" },
     { id: "timetable", ic: "🗓️", label: "Timetable" },
+    ...(isStaff() ? [{ id: "studio", ic: "🎬", label: "Video Studio" }] : []),
   ];
   const sideTabs = [...tabs.slice(0, -1), ...extraTabs, tabs[tabs.length - 1]];
   const sideHTML = sideTabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
@@ -282,7 +283,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, more: renderMore }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -1714,6 +1715,7 @@ async function renderMore() {
         <div class="qa" data-nav="fees"><div class="qi" style="background:#fff4cf">💰</div><div class="ql">Fees</div></div>
         <div class="qa" data-nav="doubts"><div class="qi" style="background:#fdecea">❓</div><div class="ql">Doubts</div></div>
         <div class="qa" data-nav="tutor"><div class="qi" style="background:#e8f1fe">🤖</div><div class="ql">AI Tutor</div></div>
+        ${isStaff() ? `<div class="qa" data-nav="studio"><div class="qi" style="background:#fdecea">🎬</div><div class="ql">Video Studio</div></div>` : ""}
         <div class="qa" data-nav="live"><div class="qi" style="background:#fdecea">📺</div><div class="ql">Live Class</div></div>
         <div class="qa" data-nav="top"><div class="qi" style="background:#fff4cf">🏆</div><div class="ql">Leaderboard</div></div>
         <div class="qa" data-nav="homework"><div class="qi" style="background:#e2f4ec">📒</div><div class="ql">Homework</div></div>
@@ -2342,4 +2344,269 @@ async function renderTimetable() {
       renderTimetable();
     });
   }
+}
+
+/* ---------------- Video Studio (staff only) ----------------
+   YouTube video -> AI notes, MCQs, questions & flashcards.
+   Generation runs in the video-study Edge Function (Gemini watches the
+   video itself — no transcript scraping). A second AI pass re-checks
+   every MCQ answer; doubtful MCQs are flagged, never silently trusted.
+   Results are stored per-teacher in studio_generations (own rows only). */
+let studioTab = "notes";   // notes | mcqs | questions | cards | glossary
+let studioCurrent = null;  // open studio_generations row
+let studioBusy = false;
+
+const ytIdOf = (u) => {
+  const m = String(u || "").match(/(?:youtube\.com\/(?:watch\?[^#]*v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+};
+const studioLangLabel = (m) => ({ bilingual: "Hindi + English", hindi: "Hindi", english: "English" }[m] || m || "");
+
+async function renderStudio() {
+  if (!isStaff()) { $app.innerHTML = `<div class="card"><h3>🎬 Video Studio</h3><p class="muted">This section is for teachers only.</p></div>`; return; }
+  if (studioCurrent) { renderStudioResult(); return; }
+  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  const [gRes, sRes, cRes] = await Promise.all([
+    sb.from("studio_generations").select("id,created_at,youtube_url,video_title,class_label,subject,chapter,language_mode,difficulty").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
+    sb.from("subjects").select("*").order("sort_order"),
+    sb.from("chapters").select("*").order("sort_order"),
+  ]);
+  if (gRes.error) {
+    $app.innerHTML = `<div class="card"><h3>🎬 Video Studio</h3><p class="muted">This feature is still being prepared. Please check again shortly.</p></div>`;
+    return;
+  }
+  const gens = gRes.data || [], subjects = sRes.data || [], chapters = cRes.data || [];
+  const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
+  const fmtD = (iso) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  $app.innerHTML = `
+    <div class="card"><h3>🎬 Video Studio — Notes & Questions from a Video</h3>
+      <p class="muted" style="margin:0 0 6px">Paste a YouTube lesson link. The AI will watch the video and prepare chapter-wise notes, MCQs, short &amp; long questions and flashcards. Every MCQ answer is double-checked by a second AI pass — doubtful ones are flagged 🚩 for you to verify.</p>
+      <label>YouTube Video Link</label><input id="vs_url" placeholder="https://www.youtube.com/watch?v=…">
+      <label>Class</label><select id="vs_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+      <label>Subject</label><select id="vs_subject"><option value="">— None —</option>${subjects.map(s => `<option value="${s.id}">${esc(s.name)} (${esc(clsName(s.class_id))})</option>`).join("")}</select>
+      <label>Chapter</label><select id="vs_chapter"><option value="">— None —</option></select>
+      <label>Language</label><select id="vs_lang"><option value="bilingual">Hindi + English (Bilingual)</option><option value="hindi">Hindi only</option><option value="english">English only</option></select>
+      <label>How many MCQs?</label><select id="vs_count"><option>10</option><option selected>15</option><option>25</option><option>50</option></select>
+      <label>Difficulty</label><select id="vs_diff"><option value="mixed">Mixed</option><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select>
+      <div class="error" id="vs_err"></div>
+      <div class="studio-stage hidden" id="vs_stage"></div>
+      <button class="gold" id="vs_gen" style="width:100%;margin-top:10px">🎬 Generate Study Material</button>
+      <p class="muted" style="margin:8px 0 0">Generation usually takes 1–3 minutes for a full lesson video. Please keep this screen open.</p>
+    </div>
+    <div class="card"><h3 style="margin:0">🗂️ My Library (${gens.length})</h3></div>
+    ${gens.map(g => `
+      <div class="card">
+        <div style="font-weight:700;font-size:15.5px;line-height:1.45">🎬 ${esc(g.video_title || "YouTube Video")}</div>
+        <p class="muted" style="margin:5px 0 0">${esc(g.class_label || "")}${g.subject ? " • " + esc(g.subject) : ""}${g.chapter ? " • " + esc(g.chapter) : ""} • ${esc(studioLangLabel(g.language_mode))} • ${fmtD(g.created_at)}</p>
+        <div class="row" style="margin-top:10px">
+          <button class="small" data-vsopen="${g.id}">Open</button>
+          <a href="${esc(g.youtube_url)}" target="_blank" rel="noopener"><button class="light small" type="button">▶ Video</button></a>
+          <button class="danger small" data-vsdel="${g.id}">Delete</button>
+        </div>
+      </div>`).join("") || `<div class="card"><p class="muted">Nothing generated yet — your study material will appear here.</p></div>`}`;
+
+  const subSel = document.getElementById("vs_subject"), chSel = document.getElementById("vs_chapter");
+  const fillChapters = () => {
+    const sid = subSel.value ? +subSel.value : null;
+    const list = sid ? chapters.filter(c => c.subject_id === sid) : [];
+    chSel.innerHTML = `<option value="">— None —</option>` + list.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  };
+  subSel.onchange = fillChapters;
+
+  document.getElementById("vs_gen").onclick = async () => {
+    if (studioBusy) return;
+    const err = document.getElementById("vs_err"); err.textContent = "";
+    const url = document.getElementById("vs_url").value.trim();
+    if (!ytIdOf(url)) { err.textContent = "Paste a valid YouTube video link"; return; }
+    const class_id = +document.getElementById("vs_class").value;
+    const subject_id = subSel.value ? +subSel.value : null;
+    const chapter_id = chSel.value ? +chSel.value : null;
+    const class_label = clsName(class_id);
+    const subject = subject_id ? ((subjects.find(s => s.id === subject_id) || {}).name || "") : "";
+    const chapter = chapter_id ? ((chapters.find(c => c.id === chapter_id) || {}).name || "") : "";
+    const language_mode = document.getElementById("vs_lang").value;
+    const mcq_count = +document.getElementById("vs_count").value;
+    const difficulty = document.getElementById("vs_diff").value;
+    studioBusy = true;
+    const btn = document.getElementById("vs_gen"); btn.disabled = true;
+    const stageEl = document.getElementById("vs_stage");
+    const stages = ["📡 Sending the video to the AI…", "🎬 The AI is watching the video…", "📝 Writing notes, MCQs and questions…", "🔍 Double-checking every MCQ answer…"];
+    let si = 0; stageEl.textContent = stages[0]; stageEl.classList.remove("hidden");
+    const timer = setInterval(() => { si = Math.min(si + 1, stages.length - 1); stageEl.textContent = stages[si]; }, 12000);
+    try {
+      const { data, error } = await sb.functions.invoke("video-study", { body: { youtube_url: url, class_label, subject, chapter, language_mode, mcq_count, difficulty } });
+      if (error) {
+        let msg = error.message || "Generation failed";
+        try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (_) {}
+        if (/failed to send|fetch|404|not found/i.test(msg)) msg = "Video Studio is still being set up on the server — please try again later.";
+        throw new Error(msg);
+      }
+      if (!data || !data.payload) throw new Error("The AI returned nothing — please try again.");
+      const payload = { ...data.payload, class_id, subject_id, chapter_id };
+      const { data: row, error: insErr } = await sb.from("studio_generations").insert({
+        user_id: me.id, youtube_url: url, video_title: payload.video_title || "YouTube Video",
+        class_label, subject, chapter, language_mode, difficulty, payload,
+      }).select().single();
+      if (insErr) throw insErr;
+      studioCurrent = row; studioTab = "notes"; studioBusy = false;
+      toast("Study material ready 🎉");
+      renderStudioResult();
+    } catch (e) {
+      err.textContent = e.message || String(e);
+    } finally {
+      clearInterval(timer); studioBusy = false;
+      const b2 = document.getElementById("vs_gen"); if (b2) b2.disabled = false;
+      const s2 = document.getElementById("vs_stage"); if (s2) s2.classList.add("hidden");
+    }
+  };
+
+  $app.querySelectorAll("[data-vsopen]").forEach(b => b.onclick = async () => {
+    const { data, error } = await sb.from("studio_generations").select("*").eq("id", +b.dataset.vsopen).single();
+    if (error || !data) return toast("Could not open this item");
+    studioCurrent = data; studioTab = "notes"; renderStudioResult();
+  });
+  $app.querySelectorAll("[data-vsdel]").forEach(b => b.onclick = async () => {
+    if (!confirm("Delete this generated material?")) return;
+    const { error } = await sb.from("studio_generations").delete().eq("id", +b.dataset.vsdel);
+    if (error) return toast("Error: " + error.message);
+    toast("Deleted"); renderStudio();
+  });
+}
+
+function studioNotesBody(p) {
+  const L = [];
+  if (p.summary) { L.push("SUMMARY", p.summary, ""); }
+  if ((p.key_points || []).length) { L.push("KEY POINTS"); p.key_points.forEach(k => L.push("• " + k)); L.push(""); }
+  (p.notes || []).forEach(n => { L.push("== " + (n.title || "Notes") + " =="); (n.points || []).forEach(pt => L.push("• " + pt)); L.push(""); });
+  if ((p.glossary || []).length) { L.push("IMPORTANT WORDS (शब्दावली)"); p.glossary.forEach(g => L.push("• " + g.term + " — " + g.meaning)); L.push(""); }
+  if ((p.short_questions || []).length) { L.push("SHORT QUESTIONS & ANSWERS"); p.short_questions.forEach((q, i) => { L.push(`Q${i + 1}. ${q.question}`); if (q.answer) L.push("Ans. " + q.answer); }); }
+  return L.join("\n").trim();
+}
+
+function studioPrint(kind) {
+  const g = studioCurrent; if (!g) return;
+  const p = g.payload || {};
+  const mcqs = p.mcqs || [], shorts = p.short_questions || [], longs = p.long_questions || [];
+  const marks = mcqs.length + shorts.length * 3 + longs.length * 5;
+  const isKey = kind === "key";
+  const secA = mcqs.length ? `<div class="pq-sec">Section A — Multiple Choice Questions (1 mark each)</div>` + mcqs.map((q, i) => `
+    <div class="pq-q"><b>Q${i + 1}.</b> ${esc(q.question)}
+      <div class="pq-opts">${q.options.map(o => `<span>${o.key}) ${esc(o.text)}${isKey && o.key === q.answer ? " ✓" : ""}</span>`).join("")}</div>
+      ${isKey ? `<div class="pq-ans"><b>Answer: ${esc(q.answer)}</b></div>${q.explanation ? `<div class="pq-expl">${esc(q.explanation)}</div>` : ""}` : ""}
+    </div>`).join("") : "";
+  const secB = shorts.length ? `<div class="pq-sec">Section B — Short Answer Questions (3 marks each)</div>` + shorts.map((q, i) => `
+    <div class="pq-q"><b>Q${i + 1}.</b> ${esc(q.question)}${isKey && q.answer ? `<div class="pq-ans"><b>Answer:</b> ${esc(q.answer)}</div>` : ""}</div>`).join("") : "";
+  const secC = longs.length ? `<div class="pq-sec">Section C — Long Answer Questions (5 marks each)</div>` + longs.map((q, i) => `
+    <div class="pq-q"><b>Q${i + 1}.</b> ${esc(q.question)}${isKey && (q.outline || []).length ? `<div class="pq-ans"><b>Answer points:</b><br>${q.outline.map(pt => "• " + esc(pt)).join("<br>")}</div>` : ""}</div>`).join("") : "";
+  let area = document.getElementById("printArea");
+  if (!area) { area = document.createElement("div"); area.id = "printArea"; document.body.appendChild(area); }
+  area.innerHTML = `<div class="pq">
+    <div class="pq-head"><div class="pq-name">TARGET ACADEMY COACHING CENTRE</div>
+      <div class="pq-sub">Manikpur, Gopalganj (Bihar)</div>
+      <div class="pq-title">${esc(p.video_title || g.video_title || "Question Paper")}${isKey ? " — ANSWER KEY" : ""}</div></div>
+    <div class="pq-meta"><span><b>Class:</b> ${esc(g.class_label || "—")}${g.subject ? " &nbsp; <b>Subject:</b> " + esc(g.subject) : ""}${g.chapter ? " &nbsp; <b>Chapter:</b> " + esc(g.chapter) : ""}</span><span><b>Full Marks:</b> ${marks}</span></div>
+    ${isKey ? "" : `<div class="pq-meta"><span><b>Name:</b> ______________________________</span><span><b>Roll No.:</b> ______________</span></div>
+    <p style="margin:6px 0"><b>General Instructions:</b> All questions are compulsory. Write neat and clear answers.</p>`}
+    ${secA}${secB}${secC}
+    <p style="margin-top:18px;text-align:center" class="pq-sub">— Source video: ${esc(g.youtube_url)} —</p>
+  </div>`;
+  document.body.classList.add("printmode");
+  window.print();
+  setTimeout(() => document.body.classList.remove("printmode"), 600);
+}
+
+function renderStudioResult() {
+  const g = studioCurrent;
+  if (!g) { renderStudio(); return; }
+  const p = g.payload || {};
+  const mcqs = p.mcqs || [];
+  const doubtful = mcqs.filter(q => q.doubtful).length;
+  const checked = mcqs.filter(q => q.verified).length;
+  const fmtD = (iso) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const tabs = [["notes", "📝 Notes"], ["mcqs", `❓ MCQs (${mcqs.length})`], ["questions", "✍️ Questions"], ["cards", "🃏 Flashcards"], ["glossary", "📖 Glossary"]];
+  let body = "";
+  if (studioTab === "notes") {
+    body = `
+      ${p.summary ? `<div class="card"><h3>📌 Summary</h3><div class="note-body">${esc(p.summary)}</div></div>` : ""}
+      ${(p.key_points || []).length ? `<div class="card"><h3>⭐ Key Points</h3>${p.key_points.map(k => `<p style="margin:5px 0">• ${esc(k)}</p>`).join("")}</div>` : ""}
+      ${(p.notes || []).map(n => `<div class="card"><h3>${esc(n.title || "Notes")}</h3>${(n.points || []).map(pt => `<p style="margin:5px 0">• ${esc(pt)}</p>`).join("")}</div>`).join("")}`;
+  } else if (studioTab === "mcqs") {
+    const vnote = p.verify_status === "done"
+      ? `<div class="card" style="padding:12px 16px"><b>🔍 Answer check:</b> ${checked} of ${mcqs.length} MCQs double-checked OK${doubtful ? ` • <span style="color:var(--bad)"><b>${doubtful} flagged 🚩 — please verify from the video before use</b></span>` : ""}${p.mcq_shortfall ? `<br><span class="muted">Note: ${p.mcq_shortfall} fewer MCQs than requested could be prepared from this video.</span>` : ""}</div>`
+      : `<div class="card" style="padding:12px 16px"><b>🔍 Answer check:</b> <span style="color:var(--bad)">The double-check could not run for this video — please review the answers yourself before giving them to students.</span></div>`;
+    body = vnote + mcqs.map((q, i) => `
+      <div class="card">
+        <div style="font-weight:700;font-size:15.5px;line-height:1.5"><b>Q${i + 1}.</b> ${esc(q.question)}
+          ${q.doubtful ? `<span class="pill red">🚩 Please verify</span>` : q.verified ? `<span class="pill green">✓ Double-checked</span>` : ""}</div>
+        <div style="margin-top:8px">${q.options.map(o => `<div class="optrow ${o.key === q.answer ? "opt-right" : ""}"><b>${o.key}.</b> ${esc(o.text)}${o.key === q.answer ? " ✓" : ""}</div>`).join("")}</div>
+        ${q.doubtful && q.verify_answer ? `<p class="s" style="color:var(--bad);margin-top:6px">🚩 The double-check pass suggested option <b>${esc(q.verify_answer)}</b> instead — please confirm the correct answer from the video before using this question.</p>` : ""}
+        ${q.explanation ? `<div class="expl-box" style="margin-top:8px">💡 <b>Explanation:</b> ${esc(q.explanation)}</div>` : ""}
+      </div>`).join("");
+  } else if (studioTab === "questions") {
+    body = `
+      ${(p.short_questions || []).length ? `<div class="card"><h3>✍️ Short Questions (with answers)</h3>${p.short_questions.map((q, i) => `
+        <div style="margin:0 0 12px"><div style="font-weight:700">Q${i + 1}. ${esc(q.question)}</div>
+        ${q.answer ? `<div class="expl-box" style="margin-top:5px">${esc(q.answer)}</div>` : ""}</div>`).join("")}</div>` : ""}
+      ${(p.long_questions || []).length ? `<div class="card"><h3>📜 Long Questions (answer outline)</h3>${p.long_questions.map((q, i) => `
+        <div style="margin:0 0 12px"><div style="font-weight:700">Q${i + 1}. ${esc(q.question)}</div>
+        ${(q.outline || []).map(pt => `<p style="margin:4px 0 4px 14px">• ${esc(pt)}</p>`).join("")}</div>`).join("")}</div>` : ""}`;
+  } else if (studioTab === "cards") {
+    body = `<p class="muted" style="margin:2px 2px 10px">Tap a card to flip it and see the answer.</p>
+      <div class="flash-grid">${(p.flashcards || []).map((f, i) => `
+        <div class="flash" data-flash="${i}"><div class="flash-in">
+          <div class="flash-face flash-front"><div>${esc(f.front)}</div><span class="flash-hint">Tap to flip 🔄</span></div>
+          <div class="flash-face flash-back"><div>${esc(f.back)}</div></div>
+        </div></div>`).join("")}</div>
+      ${(p.flashcards || []).length ? "" : `<div class="card"><p class="muted">No flashcards were prepared for this video.</p></div>`}`;
+  } else if (studioTab === "glossary") {
+    body = `<div class="card"><h3>📖 Important Words</h3>${(p.glossary || []).map(x => `
+      <div class="row" style="justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding:7px 0">
+        <b>${esc(x.term)}</b><span style="text-align:right">${esc(x.meaning)}</span></div>`).join("") || `<p class="muted">No glossary for this video.</p>`}</div>`;
+  }
+  $app.innerHTML = `
+    <button class="light small" id="vs_back">← Back to Video Studio</button>
+    <div class="card" style="margin-top:10px"><h3 style="margin:0">🎬 ${esc(p.video_title || g.video_title || "YouTube Video")}</h3>
+      <p class="muted" style="margin:6px 0 0">${esc(g.class_label || "")}${g.subject ? " • " + esc(g.subject) : ""}${g.chapter ? " • " + esc(g.chapter) : ""} • ${esc(studioLangLabel(g.language_mode))} • ${fmtD(g.created_at)} • <a href="${esc(g.youtube_url)}" target="_blank" rel="noopener">▶ Watch video</a></p>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap">
+        <button class="small" id="vs_paper">🖨️ Question Paper (PDF)</button>
+        <button class="small light" id="vs_key">📄 Answer Key (PDF)</button>
+        <button class="small gold" id="vs_import">⬇ Import ${mcqs.length} MCQs to Question Bank</button>
+        <button class="small light" id="vs_savenotes">📗 Save Notes to Platform</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Question Paper has no answers (for students); Answer Key has answers + explanations (for you). Use the browser's "Save as PDF" in the print window.</p>
+    </div>
+    <div class="mtabs">${tabs.map(([k, l]) => `<button class="chip ${studioTab === k ? "on" : ""}" data-vtab="${k}">${l}</button>`).join("")}</div>
+    ${body}`;
+  document.getElementById("vs_back").onclick = () => { studioCurrent = null; renderStudio(); };
+  $app.querySelectorAll("[data-vtab]").forEach(b => b.onclick = () => { studioTab = b.dataset.vtab; renderStudioResult(); });
+  $app.querySelectorAll("[data-flash]").forEach(c => c.onclick = () => c.classList.toggle("on"));
+  document.getElementById("vs_paper").onclick = () => studioPrint("paper");
+  document.getElementById("vs_key").onclick = () => studioPrint("key");
+  document.getElementById("vs_import").onclick = async () => {
+    if (!p.class_id) return toast("No class was selected for this video — generate again with a class");
+    if (!mcqs.length) return toast("No MCQs to import");
+    if (!confirm(`Import ${mcqs.length} MCQs into the Question Bank (${g.class_label}${g.subject ? " • " + g.subject : ""})? They will be published for test-building.`)) return;
+    const rows = mcqs.map(q => ({
+      teacher_id: me.id, class_id: p.class_id, subject_id: p.subject_id || null, chapter_id: p.chapter_id || null,
+      qtype: "mcq_single", question_text: q.question,
+      options: q.options.map(o => ({ key: o.key, text: o.text })),
+      correct_answer: [q.answer], explanation: q.explanation || null,
+      marks: 1, difficulty: ["easy", "medium", "hard"].includes(q.difficulty) ? q.difficulty : "medium",
+      status: "published",
+    }));
+    const { error } = await sb.from("questions").insert(rows);
+    if (error) return toast("Error: " + error.message);
+    toast(`✅ ${rows.length} MCQs added to the Question Bank`);
+  };
+  document.getElementById("vs_savenotes").onclick = async () => {
+    if (!p.class_id) return toast("No class was selected for this video — generate again with a class");
+    const bodyText = studioNotesBody(p);
+    if (!bodyText) return toast("No notes to save for this video");
+    const { error } = await sb.from("notes").insert({
+      teacher_id: me.id, class_id: p.class_id, subject_id: p.subject_id || null, chapter_id: p.chapter_id || null,
+      title: (p.video_title || g.video_title || "Video Notes") + " — Notes", body: bodyText, status: "published",
+    });
+    if (error) return toast("Error: " + error.message);
+    toast("📗 Notes saved — students can see them in the Notes section");
+  };
 }

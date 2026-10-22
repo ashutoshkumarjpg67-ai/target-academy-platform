@@ -441,3 +441,38 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
   background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.32); color:#fff;
   font-size:12px; font-weight:700; padding:6px 11px; border-radius:999px;
 }
+
+/* ---------- Video Studio (v34) ---------- */
+.optrow{padding:7px 10px; border:1px solid var(--line); border-radius:10px; margin:5px 0; font-size:14.5px; background:#fbfcfe; line-height:1.5}
+.opt-right{border-color:var(--ok); background:#e9f9f1; font-weight:600}
+.studio-stage{margin-top:10px; padding:10px 12px; border-radius:10px; background:var(--goldsoft); color:#8a6400; font-weight:700; animation:studiopulse 1.6s ease-in-out infinite}
+@keyframes studiopulse{0%,100%{opacity:1}50%{opacity:.5}}
+.flash-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+@media(max-width:560px){.flash-grid{grid-template-columns:1fr}}
+.flash{perspective:900px; height:180px; cursor:pointer}
+.flash-in{position:relative; width:100%; height:100%; transition:transform .55s; transform-style:preserve-3d}
+.flash.on .flash-in{transform:rotateY(180deg)}
+.flash-face{position:absolute; inset:0; backface-visibility:hidden; -webkit-backface-visibility:hidden; border-radius:14px; padding:16px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; font-weight:600; line-height:1.6; overflow:auto; box-shadow:var(--shadow-sm)}
+.flash-front{background:linear-gradient(135deg,var(--navy),var(--navy3)); color:#fff}
+.flash-back{background:var(--goldsoft); color:#5c4300; transform:rotateY(180deg); border:1px solid var(--gold)}
+.flash-hint{margin-top:10px; font-size:11.5px; opacity:.75; font-weight:500}
+
+/* ---------- Print: question paper / answer key (Video Studio) ---------- */
+#printArea{display:none}
+@media print{
+  body.printmode .layout, body.printmode #toast{display:none !important}
+  body.printmode #printArea{display:block !important}
+}
+.pq{color:#000; font-size:14px; line-height:1.55}
+.pq-head{text-align:center; border-bottom:2px solid #000; padding-bottom:8px; margin-bottom:12px}
+.pq-head .pq-name{font-size:21px; font-weight:800; letter-spacing:.4px}
+.pq-head .pq-sub{font-size:12.5px}
+.pq-sub{font-size:12.5px}
+.pq-title{font-size:16.5px; font-weight:800; margin:10px 0 2px; text-align:center}
+.pq-meta{display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:13px; margin:6px 0}
+.pq-sec{font-size:15px; font-weight:800; margin:16px 0 8px; border-bottom:1px solid #999; padding-bottom:3px}
+.pq-q{margin:0 0 12px; break-inside:avoid}
+.pq-opts{margin:4px 0 0 16px}
+.pq-opts span{display:inline-block; min-width:46%; margin:1px 0; vertical-align:top}
+.pq-ans{margin:3px 0 0 16px}
+.pq-expl{margin:2px 0 0 16px; font-style:italic; color:#333}
