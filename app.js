@@ -202,7 +202,7 @@ function renderAuth(mode = "login") {
   $tabbar.classList.add("hidden"); $logout.classList.add("hidden"); if ($bell) $bell.classList.add("hidden");
   const roleTabs = `
     <div class="role-tabs" id="roleTabs">
-      ${[["student", "छात्र"], ["teacher", "शिक्षक"], ["admin", "एडमिन"]].map(([r, l]) => `<button type="button" class="rtab ${authRole === r ? "on" : ""}" data-role="${r}">${l}</button>`).join("")}
+      ${[["student", "Student"], ["teacher", "Teacher"], ["admin", "Admin"]].map(([r, l]) => `<button type="button" class="rtab ${authRole === r ? "on" : ""}" data-role="${r}">${l}</button>`).join("")}
     </div>`;
   $app.innerHTML = `
     <div class="auth-wrap">
@@ -219,12 +219,12 @@ function renderAuth(mode = "login") {
         <label>ईमेल</label>
         <input id="f_email" type="email" autocomplete="email" placeholder="you@example.com">
         <label>पासवर्ड</label>
-        <div class="pw-wrap"><input id="f_pass" type="password" autocomplete="${mode === "login" ? "current-password" : "new-password"}" placeholder="••••••••"><button type="button" class="pw-eye" id="pwEye" aria-label="पासवर्ड देखें">👁️</button></div>
-        ${mode === "login" ? `<div class="auth-row"><label class="remember"><input type="checkbox" id="f_rem" checked> मुझे याद रखें</label><button type="button" class="link" id="authForgot">पासवर्ड भूल गए?</button></div>` : ""}
+        <div class="pw-wrap"><input id="f_pass" type="password" autocomplete="${mode === "login" ? "current-password" : "new-password"}" placeholder="••••••••"><button type="button" class="pw-eye" id="pwEye" aria-label="Show password">👁️</button></div>
+        ${mode === "login" ? `<div class="auth-row"><label class="remember"><input type="checkbox" id="f_rem" checked> मुझे याद रखें</label><button type="button" class="link" id="authForgot">Forgot Password?</button></div>` : ""}
         <div class="error" id="authErr"></div>
-        <button class="gold" id="authGo" style="width:100%">${mode === "login" ? "लॉगिन करें" : "खाता बनाएँ"}</button>
+        <button class="gold" id="authGo" style="width:100%">${mode === "login" ? "Login" : "Create Account"}</button>
         <div class="auth-or"><span>या</span></div>
-        <button type="button" class="btn-outline" id="authSwap" style="width:100%">${mode === "login" ? "नया खाता बनाएँ" : "पहले से खाता है — लॉगिन करें"}</button>
+        <button type="button" class="btn-outline" id="authSwap" style="width:100%">${mode === "login" ? "Create Account" : "Already have an account? Login"}</button>
         <p class="muted" style="margin-top:12px">नया खाता छात्र के रूप में बनता है। शिक्षक/एडमिन की भूमिका Academy द्वारा दी जाती है।</p>
       </div>
     </div>`;
@@ -327,34 +327,34 @@ function renderShell() {
   else if (tab !== lastTab && !navFromPop) { try { history.pushState({ tab }, ""); } catch (e) {} }
   lastTab = tab; navFromPop = false; curView = "tab";
   const tabs = [
-    { id: "home", ic: "🏠", label: "डैशबोर्ड" },
-    { id: "study", ic: "📚", label: "स्टडी" },
-    { id: "tests", ic: "📝", label: "टेस्ट" },
-    { id: "fees", ic: "💰", label: "फ़ीस" },
-    ...(isStaff() ? [{ id: "manage", ic: "🛠️", label: "प्रबंध" }] : []),
-    ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "उपयोगकर्ता" }] : []),
-    { id: "more", ic: "☰", label: "अधिक" },
+    { id: "home", ic: "🏠", label: "Dashboard" },
+    { id: "study", ic: "📚", label: "Study" },
+    { id: "tests", ic: "📝", label: "Test" },
+    { id: "fees", ic: "💰", label: "Fees" },
+    ...(isStaff() ? [{ id: "manage", ic: "🛠️", label: "Manage" }] : []),
+    ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "Users" }] : []),
+    { id: "more", ic: "☰", label: "More" },
   ];
   document.body.classList.remove("auth-mode");
   const staffBar = [
-    ["home", "🏠", "डैशबोर्ड"],
-    ...(profile.role === "admin" ? [["users", "👥", "छात्र"]] : []),
-    ["manage", "🛠️", "पढ़ाई"],
-    ["fees", "💰", "फ़ीस"],
-    ["more", "☰", "अधिक"],
+    ["home", "🏠", "Dashboard"],
+    ...(profile.role === "admin" ? [["users", "👥", "Students"]] : []),
+    ["manage", "🛠️", "Study"],
+    ["fees", "💰", "Fees"],
+    ["more", "☰", "More"],
   ];
   const staffBarIds = staffBar.map(([id]) => id);
   const navHTML = !isStaff()
-    ? [["home", "🏠", "होम"], ["study", "📚", "स्टडी"], ["tests", "📝", "टेस्ट"], ["profile", "👤", "प्रोफ़ाइल"]].map(([id, ic, label]) => `<button data-tab="${id}" class="${tab === id ? "active" : ""}"><span class="ic">${ic}</span>${label}</button>`).join("")
+    ? [["home", "🏠", "Home"], ["study", "📚", "Study"], ["tests", "📝", "Test"], ["profile", "👤", "Profile"]].map(([id, ic, label]) => `<button data-tab="${id}" class="${tab === id ? "active" : ""}"><span class="ic">${ic}</span>${label}</button>`).join("")
     : staffBar.map(([id, ic, label]) => `<button data-tab="${id}" class="${tab === id || (id === "more" && !staffBarIds.includes(tab)) ? "active" : ""}"><span class="ic">${ic}</span>${label}</button>`).join("");
   const extraTabs = [
-    { id: "doubts", ic: "❓", label: "Doubts सवाल" },
+    { id: "doubts", ic: "❓", label: "Doubts" },
     { id: "tutor", ic: "🤖", label: "AI Tutor" },
     { id: "live", ic: "📺", label: "Live Class" },
     { id: "top", ic: "🏆", label: "Leaderboard" },
-    { id: "homework", ic: "📒", label: "होमवर्क" },
-    { id: "attendance", ic: "✅", label: "उपस्थिति" },
-    { id: "timetable", ic: "🗓️", label: "समय-सारणी" },
+    { id: "homework", ic: "📒", label: "Homework" },
+    { id: "attendance", ic: "✅", label: "Attendance" },
+    { id: "timetable", ic: "🗓️", label: "Timetable" },
     ...(isStaff() ? [{ id: "studio", ic: "🎬", label: "Video Studio" }] : []),
   ];
   const byId = {};
@@ -482,7 +482,7 @@ async function renderHome() {
         ${recent.length ? recent.map(a => { const t = testById[a.test_id]; return `<div class="frow"><div class="fic" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">${a.passed ? "🏆" : "📝"}</div>
           <div style="flex:1; min-width:0"><div class="ft">${esc(t?.title || "टेस्ट")}</div><div class="fs">${t?.subject_id && subById[t.subject_id] ? esc(subById[t.subject_id].name) + " • " : ""}${new Date(a.submitted_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}</div></div>
           <div style="text-align:right; flex:0 0 auto"><div style="font-weight:900; color:var(--navy)">${a.score}/${a.max_score}</div>${pillFor(+a.percent || 0)}</div></div>`; }).join("") : `<p class="muted" style="margin:0">अभी कोई टेस्ट नहीं दिया है — पहला टेस्ट देकर शुरुआत करें।</p>`}
-        <button data-go="tests" style="width:100%; margin-top:12px">सभी देखें ›</button>
+        <button data-go="tests" style="width:100%; margin-top:12px">View All ›</button>
       </div>
       ${myLives.length ? `<div class="card"><h3>📺 आने वाली Live Classes</h3>
         ${myLives.map(l => { const isLive = new Date(l.starts_at).getTime() <= Date.now(); return `<div class="frow"><div class="fic" style="background:#fdecea">📺</div>
@@ -545,7 +545,7 @@ async function renderHome() {
         <div class="dh-sub">Target Academy • ${todayStr}</div>
       </div>
     </div>
-    <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="नोट्स, वीडियो, PDF खोजें…"><button class="small gold" id="homeGo">खोजें</button></div>
+    <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="नोट्स, वीडियो, PDF खोजें…"><button class="small gold" id="homeGo">Search</button></div>
     <div class="stile-grid">
       <div class="stile" ${profile.role === "admin" ? `data-go="users"` : ""}><span class="si2" style="background:#e8f1fe">👥</span><div class="sl">कुल छात्र</div><div class="sv">${sc ?? 0}</div><div class="ssub">Academy में कुल छात्र</div></div>
       <div class="stile" data-go="attendance"><span class="si2" style="background:#e6f7f0">✅</span><div class="sl">आज की उपस्थिति</div><div class="sv">${attMarked ? attPresentN + "/" + attMarked : "—"}</div><div class="ssub">${attMarked ? attPctToday + "% छात्र उपस्थित" : "आज अभी दर्ज नहीं हुई"}</div></div>
@@ -554,18 +554,18 @@ async function renderHome() {
     </div>
     <div class="card"><h3>⚡ त्वरित कार्य • Quick Actions</h3>
       <div class="qa-grid3">
-        ${profile.role === "admin" ? `<div class="qa" data-go="users"><div class="qi" style="background:#fdf3d7">👥</div><div class="ql">छात्र जोड़ें</div></div>` : ""}
-        <div class="qa" data-go="attendance"><div class="qi" style="background:#e6f7f0">✅</div><div class="ql">उपस्थिति लगाएँ</div></div>
-        <div class="qa" data-go="fees"><div class="qi" style="background:#e2f4ec">💰</div><div class="ql">फ़ीस</div></div>
-        <div class="qa" data-go="tests"><div class="qi" style="background:#fde8e8">📝</div><div class="ql">Test बनाएँ</div></div>
-        <div class="qa" data-go="study"><div class="qi" style="background:#e2f4ec">📚</div><div class="ql">Notes जोड़ें</div></div>
-        <div class="qa" data-go="manage"><div class="qi" style="background:#e8effe">📢</div><div class="ql">सूचना भेजें</div></div>
+        ${profile.role === "admin" ? `<div class="qa" data-go="users"><div class="qi" style="background:#fdf3d7">👥</div><div class="ql">Add Student</div></div>` : ""}
+        <div class="qa" data-go="attendance"><div class="qi" style="background:#e6f7f0">✅</div><div class="ql">Mark Attendance</div></div>
+        <div class="qa" data-go="fees"><div class="qi" style="background:#e2f4ec">💰</div><div class="ql">Fees</div></div>
+        <div class="qa" data-go="tests"><div class="qi" style="background:#fde8e8">📝</div><div class="ql">Create Test</div></div>
+        <div class="qa" data-go="study"><div class="qi" style="background:#e2f4ec">📚</div><div class="ql">Add Notes</div></div>
+        <div class="qa" data-go="manage"><div class="qi" style="background:#e8effe">📢</div><div class="ql">Send Notice</div></div>
       </div>
     </div>
     <div class="card"><h3>🗓️ आज की कक्षाएँ</h3>
       ${todayClasses.length ? todayClasses.map(e => `<div class="frow"><div class="fic" style="background:#e8f1fe">🕐</div>
         <div style="flex:1; min-width:0"><div class="ft">${esc(subNameS(e.subject_id))}</div><div class="fs">${esc(clsNameS(e.class_id))} • ${String(e.starts_at || "").slice(0, 5)} – ${String(e.ends_at || "").slice(0, 5)}</div></div>
-        <button class="light small" data-go="timetable">समय-सारणी</button></div>`).join("") : `<p class="muted" style="margin:0">आज कोई क्लास समय-सारणी में नहीं है।</p>`}
+        <button class="light small" data-go="timetable">Timetable</button></div>`).join("") : `<p class="muted" style="margin:0">आज कोई क्लास समय-सारणी में नहीं है।</p>`}
     </div>
     <div class="card"><h3>📊 Academy एक नज़र में</h3>
       <div class="stats">
@@ -1243,8 +1243,8 @@ async function renderStudy() {
         </div>
         <div class="sacts">
           <button class="sact" data-bm="${x._t}:${x.id}" title="Bookmark">${isBm(x._t, x.id) ? "★" : "☆"}</button>
-          ${x.file_path ? `<button class="sact" data-open="${x._t}:${x.id}" title="खोलें / डाउनलोड">⬇</button>` : ""}
-          ${!isDone(x._t, x.id) ? `<button class="sact" data-done="${x._t}:${x.id}" title="पढ़ लिया">✓</button>` : `<span class="sact isdone" title="पढ़ लिया">✓</span>`}
+          ${x.file_path ? `<button class="sact" data-open="${x._t}:${x.id}" title="Open / Download">⬇</button>` : ""}
+          ${!isDone(x._t, x.id) ? `<button class="sact" data-done="${x._t}:${x.id}" title="Marked as Read">✓</button>` : `<span class="sact isdone" title="Marked as Read">✓</span>`}
         </div>
       </div>`;
     };
@@ -1253,9 +1253,9 @@ async function renderStudy() {
     const subjOpts = (subjects || []).filter(s => !studyClassId || s.class_id === studyClassId);
     const chapOpts = (chapters || []).filter(c => !studySubjId || c.subject_id === studySubjId);
     $app.innerHTML = `
-      <div class="searchbar"><span>🔍</span><input id="studyQ" placeholder="नोट्स, PDF, विषय खोजें…" value="${esc(studyQuery)}"><button class="small gold" id="studyGo">खोजें</button></div>
+      <div class="searchbar"><span>🔍</span><input id="studyQ" placeholder="नोट्स, PDF, विषय खोजें…" value="${esc(studyQuery)}"><button class="small gold" id="studyGo">Search</button></div>
       <div class="seg-tabs">
-        ${[["notes", "नोट्स"], ["pdf", "PDF"], ["worksheet", "वर्कशीट"]].map(([k, l]) => `<button class="${studyTab === k ? "on" : ""}" data-stab="${k}">${l}</button>`).join("")}
+        ${[["notes", "Notes"], ["pdf", "PDF"], ["worksheet", "Worksheets"]].map(([k, l]) => `<button class="${studyTab === k ? "on" : ""}" data-stab="${k}">${l}</button>`).join("")}
       </div>
       <div class="filter-row">
         <select id="fCls" aria-label="कक्षा"><option value="">कक्षा: सभी</option>${myClasses.map(c => `<option value="${c.id}" ${c.id === studyClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
@@ -1510,8 +1510,8 @@ async function renderFeesStudent() {
         <p class="muted" style="margin:10px 0 0">अब तक कुल जमा: ₹${totalPaid.toLocaleString("en-IN")} • ${recs.length} फ़ीस रिकॉर्ड</p>
       </div>
       <div class="seg-tabs">
-        <button class="${feesTab === "monthly" ? "on" : ""}" data-ftab="monthly">मासिक फ़ीस</button>
-        <button class="${feesTab === "history" ? "on" : ""}" data-ftab="history">भुगतान इतिहास</button>
+        <button class="${feesTab === "monthly" ? "on" : ""}" data-ftab="monthly">Monthly Fees</button>
+        <button class="${feesTab === "history" ? "on" : ""}" data-ftab="history">Payment History</button>
       </div>
       ${feesTab === "monthly" ? `
         <div class="card"><h3 style="margin-top:0">🗓️ मासिक फ़ीस • Monthly Fees</h3>
@@ -1584,8 +1584,8 @@ async function renderTests() {
             <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Make Draft" : "Publish"}</button>
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
           : t.status === "published" ? (live
-            ? `<button class="gold small" data-tstart="${t.id}">▶ आगे बढ़ें • Continue</button>`
-            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 परिणाम देखें</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 फिर से दें (${submitted.length}/${t.max_attempts})` : "🔁 फिर से दें") : "▶ टेस्ट शुरू करें"}</button>` : ""}`) : ""}
+            ? `<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
+            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake (${submitted.length}/${t.max_attempts})` : "🔁 Retake") : "▶ Start Test"}</button>` : ""}`) : ""}
       </div></div>`;
   };
   const groupedTests = () => {
@@ -2043,18 +2043,18 @@ function renderRun() {
         ? "⚡ <b>Practice Mode:</b> उत्तर चुनते ही ✅ सही / ❌ गलत + व्याख्या यहीं दिखेगी और वह उत्तर lock हो जाएगा। Fill-in और लिखित उत्तर लिखते ही save हो जाते हैं।"
         : "उत्तर अपने आप save होते रहते हैं। ✅ सही / ❌ गलत और 💡 व्याख्या Submit करने के बाद परिणाम में दिखेगी।"}</p>
       ${block}
-      <label class="checkrow markrow"><input type="checkbox" id="markRev" ${run.review.has(q.question_id) ? "checked" : ""}><span>इस प्रश्न को समीक्षा के लिए चिह्नित करें <span class="muted">(Mark for Review)</span></span></label>
+      <label class="checkrow markrow"><input type="checkbox" id="markRev" ${run.review.has(q.question_id) ? "checked" : ""}><span>Mark for Review</span></label>
     </div>
     <div class="run-nav">
-      <button class="light" id="qPrev" ${run.idx === 0 ? "disabled" : ""}>← पिछला</button>
-      <button class="light" id="qPal">🔢 प्रश्न सूची</button>
-      ${last ? `<button class="gold" id="qReview">समीक्षा करें →</button>` : `<button class="gold" id="qNext">अगला →</button>`}
+      <button class="light" id="qPrev" ${run.idx === 0 ? "disabled" : ""}>← Back</button>
+      <button class="light" id="qPal">🔢 Question List</button>
+      ${last ? `<button class="gold" id="qReview">Review →</button>` : `<button class="gold" id="qNext">Next →</button>`}
     </div>
     <div class="pal-overlay hidden" id="palOverlay">
       <div class="pal-sheet">
-        <div class="pal-head"><b>🔢 सभी प्रश्न — Question List</b><button class="light small" id="palClose">✕ बंद करें</button></div>
+        <div class="pal-head"><b>🔢 सभी प्रश्न — Question List</b><button class="light small" id="palClose">✕ Close</button></div>
         <div id="palGrid">${palGridHTML()}</div>
-        <button class="gold" id="palReview" style="width:100%; margin-top:14px">📋 समीक्षा करके Test जमा करें</button>
+        <button class="gold" id="palReview" style="width:100%; margin-top:14px">📋 Review & Submit Test</button>
       </div>
     </div>`;
   bindBlockEl(document.getElementById("qq-" + q.question_id), q);
@@ -2099,8 +2099,8 @@ function renderRunReview() {
       </div>
       <div id="palGrid">${palGridHTML()}</div>
       <p class="muted">किसी नंबर पर tap करके उस प्रश्न पर वापस जा सकते हैं।</p>
-      <button class="gold" id="finalSubmit" style="width:100%">✅ Test जमा करें — Submit Test</button>
-      <button class="light" id="backToQ" style="width:100%; margin-top:8px">← प्रश्नों पर वापस जाएँ</button>
+      <button class="gold" id="finalSubmit" style="width:100%">✅ Submit Test</button>
+      <button class="light" id="backToQ" style="width:100%; margin-top:8px">← Back to Questions</button>
       <p class="muted" style="text-align:center; margin:8px 0 0">जमा करने के बाद उत्तर बदले नहीं जा सकेंगे।</p>
     </div>`;
   $app.querySelectorAll("[data-pal]").forEach(b => b.onclick = () => goQ(+b.dataset.pal));
@@ -2231,13 +2231,13 @@ async function showResult(attemptId, test) {
       ${cntR.pend ? `<p class="muted" style="margin:10px 0 0">⏳ ${cntR.pend} लिखित उत्तर शिक्षक जाँचेंगे — उनके नंबर बाद में जुड़ सकते हैं।</p>` : ""}
     </div>` : ""}
     <div class="row" style="margin:12px 0">
-      <button class="light" id="resBack">← टेस्ट सूची</button>
-      ${!error ? `<button class="gold" id="resAll">📖 सभी उत्तर देखें</button>` : ""}
-      ${canRestart ? `<button class="gold" id="resRestart">🔁 फिर से दें (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
+      <button class="light" id="resBack">← Test List</button>
+      ${!error ? `<button class="gold" id="resAll">📖 View All Answers</button>` : ""}
+      ${canRestart ? `<button class="gold" id="resRestart">🔁 Retake (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
     </div>
     ${error ? `<div class="card"><p>A detailed review is not available right now (${esc(error.message)}). Your result is shown above.</p></div>`
     : `<div id="revBox"></div>`}
-    <button class="light" id="resBack2" style="width:100%">← टेस्ट सूची पर वापस</button>`;
+    <button class="light" id="resBack2" style="width:100%">← Back to Test List</button>`;
   const goBack = () => { tab = "tests"; renderShell(); };
   document.getElementById("resBack").onclick = goBack;
   document.getElementById("resBack2").onclick = goBack;
@@ -2338,7 +2338,7 @@ async function renderProfile() {
   const pushOn = pushSupported() && Notification.permission === "granted";
   const row = (nav, ic, bg, t, d) => `<div class="hubrow" data-nav="${nav}"><span class="hic" style="background:${bg}">${ic}</span><span class="hub-tx"><span class="hub-t">${t}</span>${d ? `<span class="hub-d">${d}</span>` : ""}</span><span class="arr">›</span></div>`;
   $app.innerHTML = `
-    <div class="prof-head"><h3 class="prof-title">प्रोफ़ाइल</h3><button class="light small prof-gear" id="profGear" aria-label="सेटिंग / सूचना">⚙️</button></div>
+    <div class="prof-head"><h3 class="prof-title">प्रोफ़ाइल</h3><button class="light small prof-gear" id="profGear" aria-label="Settings / Notifications">⚙️</button></div>
     <div class="card" style="text-align:center">
       ${myPhoto
         ? `<img src="${myPhoto}" alt="" class="zoomable" data-zoom="${myPhoto}" style="width:76px; height:76px; border-radius:50%; object-fit:cover; margin:4px auto 10px; display:block; border:3px solid var(--gold)">`
@@ -2371,16 +2371,16 @@ async function renderProfile() {
       ${pushSupported()
         ? (pushOn
           ? `<p style="margin:0">✅ इस फ़ोन पर सूचनाएँ चालू हैं।</p>`
-          : `<p class="muted" style="margin-top:0">नई सूचना, टेस्ट और जवाब सीधे फ़ोन पर पाएँ — ऐप बंद होने पर भी।</p><button class="gold" id="profPush" style="width:100%">📲 फ़ोन सूचना चालू करें</button>`)
+          : `<p class="muted" style="margin-top:0">नई सूचना, टेस्ट और जवाब सीधे फ़ोन पर पाएँ — ऐप बंद होने पर भी।</p><button class="gold" id="profPush" style="width:100%">📲 Enable Phone Notifications</button>`)
         : `<p class="muted" style="margin:0">यह ब्राउज़र फ़ोन सूचना नहीं देता — ऐप को Chrome में खोलें।</p>`}
     </div>
     <div class="card"><h3>🔑 पासवर्ड बदलें</h3>
       <label>नया पासवर्ड</label><input type="password" id="np1" autocomplete="new-password" placeholder="कम से कम 6 अक्षर">
       <label>नया पासवर्ड फिर से</label><input type="password" id="np2" autocomplete="new-password" placeholder="दोबारा लिखें">
       <div class="error" id="npErr"></div>
-      <button class="gold" id="npGo" style="width:100%">पासवर्ड बदलें</button>
+      <button class="gold" id="npGo" style="width:100%">Change Password</button>
     </div>
-    <button class="danger" id="profLogout" style="width:100%">🚪 लॉग आउट</button>`;
+    <button class="danger" id="profLogout" style="width:100%">🚪 Logout</button>`;
   document.getElementById("profGear").onclick = () => { tab = "notif"; renderShell(); };
   $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
   const pp = document.getElementById("profPush");
@@ -2405,6 +2405,7 @@ boot();
 /* ---------------- Notifications / Live / Leaderboard ---------------- */
 let annFilter = "सभी";
 const ANN_CATS = ["सभी", "परीक्षा", "छुट्टी", "महत्वपूर्ण", "सूचना"];
+const ANN_CAT_EN = { "सभी": "All", "परीक्षा": "Exam", "छुट्टी": "Holiday", "महत्वपूर्ण": "Important", "सूचना": "Notice" };
 const annCatOf = (a) => ["सूचना", "परीक्षा", "छुट्टी", "महत्वपूर्ण"].includes(a?.category) ? a.category : "सूचना";
 const annCatMeta = {
   "सूचना": { ic: "📢", bg: "#e8f1fe", pill: "blue" },
@@ -2422,7 +2423,7 @@ async function renderNotifs() {
   const unread = (rows || []).filter(n => !n.is_read).length;
   $app.innerHTML = `
     ${(anns && anns.length) ? `<div class="card"><h3 style="margin:0 0 4px">📢 सूचनाएँ • Academy Notices</h3>
-      <div class="row" style="margin:10px 0 4px; gap:6px; flex-wrap:wrap">${ANN_CATS.map(c => `<button type="button" class="chip ${annFilter === c ? "on" : ""}" data-annf="${c}">${c}</button>`).join("")}</div>
+      <div class="row" style="margin:10px 0 4px; gap:6px; flex-wrap:wrap">${ANN_CATS.map(c => `<button type="button" class="chip ${annFilter === c ? "on" : ""}" data-annf="${c}">${ANN_CAT_EN[c] || c}</button>`).join("")}</div>
       ${((annFilter === "सभी" ? (anns || []) : (anns || []).filter(a => annCatOf(a) === annFilter)).length
         ? (annFilter === "सभी" ? (anns || []) : (anns || []).filter(a => annCatOf(a) === annFilter)).map(a => { const bd = a.body ? String(a.body) : ""; const cm = annCatMeta[annCatOf(a)]; return `<div class="item"><div style="display:flex; gap:10px; align-items:flex-start">
           <div class="nicon" style="background:${cm.bg}">${cm.ic}</div>
@@ -2617,16 +2618,16 @@ async function renderTutor() {
     <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
       <p class="muted" style="margin:6px 0 0">Ask any study question — type it, or tap 🎤 and speak. The AI Tutor will explain it step-by-step in easy Hindi.</p>
       <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
-        <button type="button" class="chip ${tutorMode === "normal" ? "on" : ""}" data-tmode="normal">🎓 सामान्य</button>
-        <button type="button" class="chip ${tutorMode === "easy" ? "on" : ""}" data-tmode="easy">🪜 आसान भाषा</button>
+        <button type="button" class="chip ${tutorMode === "normal" ? "on" : ""}" data-tmode="normal">🎓 Normal</button>
+        <button type="button" class="chip ${tutorMode === "easy" ? "on" : ""}" data-tmode="easy">🪜 Easy Language</button>
         <button type="button" class="chip ${tutorMode === "exam" ? "on" : ""}" data-tmode="exam">📝 Exam Style</button>
       </div>
       ${tutorChat.length ? "" : `<div class="row" style="margin-top:10px">${chips.map(c => `<button class="light small" data-tchip="${esc(c)}">${esc(c)}</button>`).join("")}</div>`}
-      ${!isStaff() && tutorWeak.length ? `<div style="margin-top:12px"><div class="muted" style="font-weight:700; margin-bottom:6px">🎯 मेरे कमज़ोर अध्याय — Tap करके समझें</div><div class="row" style="gap:6px; flex-wrap:wrap">${tutorWeak.map(w => `<button type="button" class="light small" data-tweak="${esc(w.name)}">🎯 ${esc(w.name)} समझाओ</button>`).join("")}</div></div>` : ""}
+      ${!isStaff() && tutorWeak.length ? `<div style="margin-top:12px"><div class="muted" style="font-weight:700; margin-bottom:6px">🎯 मेरे कमज़ोर अध्याय — Tap करके समझें</div><div class="row" style="gap:6px; flex-wrap:wrap">${tutorWeak.map(w => `<button type="button" class="light small" data-tweak="${esc(w.name)}">🎯 Explain: ${esc(w.name)}</button>`).join("")}</div></div>` : ""}
       <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
-        <button type="button" class="light small" data-tfill="मेरे लिए रोज़ का पढ़ने का Plan बनाओ">📌 पढ़ने का Plan बनाओ</button>
-        <button type="button" class="light small" data-tfill="मुझे याद करने के आसान तरीके बताओ">🧠 याद करने के तरीके</button>
-        <button type="button" class="light small" data-tfill="परीक्षा में उत्तर लिखने की शैली समझाओ">✍️ उत्तर लिखने की शैली</button>
+        <button type="button" class="light small" data-tfill="मेरे लिए रोज़ का पढ़ने का Plan बनाओ">📌 Study Plan</button>
+        <button type="button" class="light small" data-tfill="मुझे याद करने के आसान तरीके बताओ">🧠 Memory Tips</button>
+        <button type="button" class="light small" data-tfill="परीक्षा में उत्तर लिखने की शैली समझाओ">✍️ Answer Writing</button>
       </div>
     </div>
     <div id="tutorMsgs">${tutorChat.map((m, i) => bubble(m, i)).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 Typing…</div></div>` : ""}</div>
@@ -2965,7 +2966,7 @@ async function renderAttendance() {
               <button class="small ${attMarks[s.id] === v ? "" : "light"}" data-att="${s.id}:${v}" style="${attMarks[s.id] === v ? `background:${col}` : ""}">${l}</button>`).join("")}
           </div></div>`).join("") || `<p class="muted">There is no student in this class.</p>`}
         <button class="gold" id="att_save" style="width:100%; margin-top:10px">Save Attendance</button>
-        <button class="light" id="att_csv" style="width:100%; margin-top:8px">⬇ CSV Download — इस दिन की उपस्थिति</button>
+        <button class="light" id="att_csv" style="width:100%; margin-top:8px">⬇ CSV Download — This Day's Attendance</button>
       </div>`;
     document.getElementById("att_class").onchange = (e) => { attClassId = +e.target.value; attMarks = {}; renderAttendance(); };
     document.getElementById("att_date").onchange = (e) => { attDate = e.target.value; attMarks = {}; renderAttendance(); };
@@ -3016,7 +3017,7 @@ async function renderAttendance() {
     const stPill = { present: ["उपस्थित", "green"], absent: ["अनुपस्थित", "red"], leave: ["छुट्टी", "gold"] };
     $app.innerHTML = `
       <div class="card"><h3 style="margin-top:0">✅ उपस्थिति • Attendance</h3>
-        <div class="cal-head"><button class="light small" id="attPrev">‹ पिछला माह</button><div class="mo">${moName}</div><button class="light small" id="attNext">अगला माह ›</button></div>
+        <div class="cal-head"><button class="light small" id="attPrev">‹ Prev Month</button><div class="mo">${moName}</div><button class="light small" id="attNext">Next Month ›</button></div>
         <div class="cal-grid" id="attCalGrid">${["सो", "मं", "बु", "गु", "शु", "श", "र"].map(d => `<div class="cal-dow">${d}</div>`).join("")}${cells}</div>
         <div class="cal-legend"><span><span class="dot" style="background:#0e9f6e"></span>उपस्थित</span><span><span class="dot" style="background:#d64541"></span>अनुपस्थित</span><span><span class="dot" style="background:#f2b705"></span>छुट्टी</span></div>
       </div>
