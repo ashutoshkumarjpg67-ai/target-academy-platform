@@ -705,3 +705,6 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .v45rows .item:last-child{margin-bottom:2px}
 .pq table{width:100%; border-collapse:collapse; margin-top:8px}
 .pq th,.pq td{border:1px solid #999; padding:5px 8px; text-align:left; font-size:13px}
+
+/* ---------- v47: More page (renderMore) master-spec redesign ---------- */
+/* Uses existing .card/.hubrow/.prof-head classes — no overrides of earlier versions. */
