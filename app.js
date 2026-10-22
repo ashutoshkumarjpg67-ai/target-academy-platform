@@ -108,6 +108,45 @@ function enhanceFilePicker(input, { imageOnly = false } = {}) {
   input.addEventListener("change", () => pick(input.files[0]));
 }
 
+/* ---------------- Brand logo (v49 — admin-changeable) ----------------
+   The admin can upload a new coaching logo (Manage → Coaching Logo). It
+   lives in the PUBLIC images bucket at the fixed path branding/logo.png.
+   Every logo <img class="brand-logo"> tries that URL first, with a ?v=
+   cache-buster taken from localStorage "logo_v" (bumped on each admin
+   upload), and falls back to the bundled icon.svg if no custom logo has
+   been uploaded yet — so existing installs keep the current logo until
+   an admin changes it. The PWA/manifest icon always stays bundled. */
+const BRAND_LOGO_URL = `${SUPABASE_URL}/storage/v1/object/public/images/branding/logo.png`;
+const BUNDLED_LOGO = "icon.svg?v=31";
+const brandLogoURL = () => { let v = ""; try { v = localStorage.getItem("logo_v") || ""; } catch (_) {} return BRAND_LOGO_URL + "?v=" + (v || "1"); };
+function applyBrandLogo(root = document) {
+  root.querySelectorAll("img.brand-logo").forEach(img => {
+    const url = brandLogoURL();
+    img.onerror = () => { img.onerror = null; if (img.getAttribute("src") !== BUNDLED_LOGO) img.src = BUNDLED_LOGO; if ("zoom" in img.dataset) img.dataset.zoom = BUNDLED_LOGO; };
+    if (img.getAttribute("src") !== url) img.src = url;
+    if ("zoom" in img.dataset) img.dataset.zoom = url;
+  });
+}
+
+/* ---------------- Own profile photo (v49) ----------------
+   Shared by the student Profile page and the More page (where staff
+   land). The picked file is auto-compressed in the browser, uploaded
+   to the avatars bucket under the user's own folder (same pattern as
+   the staff user-edit flow) and saved to profiles.photo_path. */
+async function uploadOwnPhoto(fileInput) {
+  const f = fileInput && fileInput.files && fileInput.files[0];
+  if (!f) { toast("Take or choose a photo first"); return false; }
+  const file = await prepareUploadFile(f);
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${me.id}/${Date.now()}.${ext}`;
+  const { error: ue } = await sb.storage.from("avatars").upload(path, file, { upsert: true });
+  if (ue) throw ue;
+  const { error } = await sb.from("profiles").update({ photo_path: path }).eq("id", me.id);
+  if (error) throw error;
+  profile.photo_path = path;
+  return true;
+}
+
 /* ---------------- Photo viewer (click → बड़ा) ---------------- */
 function viewPhoto(url) {
   if (!url) return;
@@ -207,7 +246,7 @@ function renderAuth(mode = "login") {
   $app.innerHTML = `
     <div class="auth-wrap">
       <div class="auth-brand">
-        <img src="icon.svg?v=31" alt="Target Academy logo" class="auth-logo" data-zoom="icon.svg?v=31">
+        <img src="icon.svg?v=31" alt="Target Academy logo" class="auth-logo brand-logo" data-zoom="icon.svg?v=31">
         <div class="ab-name">TARGET ACADEMY</div>
         <div class="ab-sub">COACHING CENTRE</div>
         <div class="ab-by">By Ashutosh Kumar</div>
@@ -228,6 +267,7 @@ function renderAuth(mode = "login") {
         <p class="muted" style="margin-top:12px">नया खाता छात्र के रूप में बनता है। शिक्षक/एडमिन की भूमिका Academy द्वारा दी जाती है।</p>
       </div>
     </div>`;
+  applyBrandLogo();
   $app.querySelectorAll(".rtab").forEach(b => b.onclick = () => { authRole = b.dataset.role; renderAuth(mode); });
   document.getElementById("pwEye").onclick = () => { const p = document.getElementById("f_pass"); p.type = p.type === "password" ? "text" : "password"; };
   document.getElementById("authSwap").onclick = () => renderAuth(mode === "login" ? "signup" : "login");
@@ -266,6 +306,7 @@ function renderAuth(mode = "login") {
 
 /* ---------------- Boot / session ---------------- */
 async function boot() {
+  applyBrandLogo();
   const { data } = await sb.auth.getUser();
   me = data?.user || null;
   if (!me) { renderAuth("login"); return; }
@@ -628,6 +669,18 @@ async function renderManage() {
   const chapsOf = (sid) => (chapters || []).filter(c => c.subject_id === sid);
 
   $app.innerHTML = `
+    ${profile.role === "admin" ? `
+    <div class="card pol-sec">
+      <h3>🏫 Coaching Logo</h3>
+      <p class="muted" style="margin:0 0 10px">This logo shows in the app header, on the login screen and on the opening (splash) screen. Upload a clear, square image — it is compressed automatically before upload. (The installed app's home-screen icon stays the default one.)</p>
+      <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap">
+        <img class="brand-logo" src="icon.svg?v=31" alt="Coaching logo" style="width:72px; height:72px; border-radius:16px; object-fit:cover; border:2px solid var(--gold); background:var(--navy)">
+        <div style="flex:1; min-width:210px">
+          <input type="file" id="logoFile" accept="image/*">
+          <button class="gold" id="logoBtn" style="width:100%; margin-top:8px">Change Logo</button>
+        </div>
+      </div>
+    </div>` : ""}
     <div class="card pol-sec">
       <h3>🏫 Classes, Subjects & Chapters</h3>
       <p>This structure is the foundation of notes, materials, questions and tests.</p>
@@ -687,6 +740,26 @@ async function renderManage() {
     toast("Notice sent 📢"); tab = "home"; renderShell();
   };
   document.getElementById("goFees").onclick = () => { tab = "fees"; renderShell(); };
+  applyBrandLogo();
+  const logoFile = document.getElementById("logoFile");
+  if (logoFile) {
+    enhanceFilePicker(logoFile, { imageOnly: true });
+    document.getElementById("logoBtn").onclick = async () => {
+      const f = logoFile.files[0];
+      if (!f) return toast("Choose a logo image first");
+      const btn = document.getElementById("logoBtn");
+      btn.disabled = true; btn.textContent = "Uploading…";
+      try {
+        const file = await prepareUploadFile(f);
+        const { error } = await sb.storage.from("images").upload("branding/logo.png", file, { upsert: true, contentType: file.type || "image/png" });
+        if (error) throw error;
+        try { localStorage.setItem("logo_v", String(Date.now())); } catch (_) {}
+        applyBrandLogo();
+        toast("🏫 Logo updated — the new logo now shows across the app");
+        renderManage();
+      } catch (e) { toast("Error: " + e.message); btn.disabled = false; btn.textContent = "Change Logo"; }
+    };
+  }
   renderQBank(subjects || [], chapters || []);
 }
 
@@ -2281,6 +2354,10 @@ async function renderMore() {
       <div style="font-size:19px; font-weight:900; color:var(--navy)">${esc(profile.full_name)}</div>
       <div class="muted">${esc(me.email)}</div>
       <div style="margin-top:8px"><span class="pill gold">${esc(roleName(profile.role))}</span></div>
+      <div style="margin-top:12px">
+        <input type="file" id="morePhotoFile" accept="image/*">
+        <button class="gold small" id="morePhotoGo" style="margin-top:8px">📷 Change Photo</button>
+      </div>
       ${profile.role === "student" ? `<div class="stats" style="margin-top:14px">
         <div class="stat"><div class="n">${testsGiven}</div><div class="l">दिए गए टेस्ट • Tests</div></div>
         <div class="stat"><div class="n">${avg}%</div><div class="l">औसत अंक • Average</div></div>
@@ -2323,6 +2400,18 @@ async function renderMore() {
     </div>
     <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 Logout</button>`;
   $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
+  const mpf = document.getElementById("morePhotoFile");
+  if (mpf) {
+    enhanceFilePicker(mpf, { imageOnly: true });
+    document.getElementById("morePhotoGo").onclick = async () => {
+      const btn = document.getElementById("morePhotoGo");
+      btn.disabled = true; btn.textContent = "Uploading…";
+      try {
+        if (await uploadOwnPhoto(mpf)) { toast("📷 Photo updated"); renderMore(); return; }
+      } catch (e) { toast("Error: " + e.message); }
+      btn.disabled = false; btn.textContent = "📷 Change Photo";
+    };
+  }
 }
 
 /* ---------------- Student Profile (Phase 1 — design photo 10) ---------------- */
@@ -2346,6 +2435,10 @@ async function renderProfile() {
       <div style="font-size:19px; font-weight:900; color:var(--navy)">${esc(profile.full_name)}</div>
       <div class="muted">${classNames ? esc(classNames) + " • " : ""}${esc(roleName(profile.role))}</div>
       <div class="muted">${esc(me.email || "")}</div>
+      <div style="margin-top:12px">
+        <input type="file" id="profPhotoFile" accept="image/*">
+        <button class="gold small" id="profPhotoGo" style="margin-top:8px">📷 Change Photo</button>
+      </div>
     </div>
     <div class="card"><h3>📋 मेरी जानकारी</h3>
       <div class="menu-item"><span class="mi">👤</span>नाम<span class="arr">${esc(profile.full_name)}</span></div>
@@ -2382,6 +2475,18 @@ async function renderProfile() {
     </div>
     <button class="danger" id="profLogout" style="width:100%">🚪 Logout</button>`;
   document.getElementById("profGear").onclick = () => { tab = "notif"; renderShell(); };
+  const ppf = document.getElementById("profPhotoFile");
+  if (ppf) {
+    enhanceFilePicker(ppf, { imageOnly: true });
+    document.getElementById("profPhotoGo").onclick = async () => {
+      const btn = document.getElementById("profPhotoGo");
+      btn.disabled = true; btn.textContent = "Uploading…";
+      try {
+        if (await uploadOwnPhoto(ppf)) { toast("📷 Photo updated"); renderProfile(); return; }
+      } catch (e) { toast("Error: " + e.message); }
+      btn.disabled = false; btn.textContent = "📷 Change Photo";
+    };
+  }
   $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
   const pp = document.getElementById("profPush");
   if (pp) pp.onclick = async () => { await enablePush(); renderProfile(); };
@@ -2592,8 +2697,27 @@ function speakText(text, btn) {
 let tutorChat = [];   // {role:'me'|'ai', text} — kept while the app stays open
 let tutorBusy = false;
 let tutorMode = "normal";   // normal | easy | exam
+let tutorPhoto = null;      // {data, mimeType, url} — pending question photo, IN MEMORY ONLY (never uploaded to Storage, never persisted)
 let tutorWeak = [];         // student's weak chapters (<70 avg) for suggestion chips
 let tutorWeakLoaded = false;
+/* Photo → base64 for the AI Tutor (v49). The photo is compressed in the
+   browser (max 1024px, JPEG) and kept ONLY in memory as base64 — it is
+   never uploaded to Supabase Storage and never written to localStorage. */
+async function photoToBase64(file, maxDim = 1024) {
+  let blob = await compressImageFile(file, maxDim, 0.82);
+  if (blob.type !== "image/jpeg") {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const cv = document.createElement("canvas"); cv.width = bmp.width; cv.height = bmp.height;
+      cv.getContext("2d").drawImage(bmp, 0, 0);
+      if (bmp.close) bmp.close();
+      blob = (await new Promise(r => cv.toBlob(r, "image/jpeg", 0.82))) || blob;
+    } catch (_) { /* keep whatever we have */ }
+  }
+  const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+  return { data: String(url).split(",")[1] || "", mimeType: "image/jpeg", url: String(url) };
+}
+
 async function renderTutor() {
   if (!isStaff() && !tutorWeakLoaded) {
     tutorWeakLoaded = true;
@@ -2612,11 +2736,11 @@ async function renderTutor() {
   }
   const chips = ["Explain refraction of light", "What is photosynthesis?", "Why do the angles of a triangle add up to 180°?", "Explain the water cycle", "How do I solve x + 5 = 12?"];
   const bubble = (m, i) => m.role === "me"
-    ? `<div class="chatrow me"><div class="bubble me">${esc(m.text)}</div></div>`
+    ? `<div class="chatrow me"><div class="bubble me">${m.img ? `<img src="${m.img}" alt="Question photo" style="max-width:190px; width:100%; border-radius:10px; display:block; margin-bottom:${m.text ? "6px" : "0"}">` : ""}${esc(m.text)}</div></div>`
     : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${esc(m.text).replace(/\n/g, "<br>")}<br><button type="button" class="light small" data-sayidx="${i}" style="margin-top:6px">🔊 Listen</button></div></div>`;
   $app.innerHTML = `
     <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
-      <p class="muted" style="margin:6px 0 0">Ask any study question — type it, or tap 🎤 and speak. The AI Tutor will explain it step-by-step in easy Hindi.</p>
+      <p class="muted" style="margin:6px 0 0">Ask any study question — type it, tap 🎤 to speak, or tap 📷 Photo to ask from a photo of your book or notebook. The AI Tutor will explain it step-by-step in easy Hindi.</p>
       <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
         <button type="button" class="chip ${tutorMode === "normal" ? "on" : ""}" data-tmode="normal">🎓 Normal</button>
         <button type="button" class="chip ${tutorMode === "easy" ? "on" : ""}" data-tmode="easy">🪜 Easy Language</button>
@@ -2632,27 +2756,49 @@ async function renderTutor() {
     </div>
     <div id="tutorMsgs">${tutorChat.map((m, i) => bubble(m, i)).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 Typing…</div></div>` : ""}</div>
     <form id="tutorForm" class="card">
+      ${tutorPhoto ? `<div class="tut-photo"><img src="${tutorPhoto.url}" alt="Question photo"><span class="muted" style="flex:1">Photo attached — tap Ask, or write a line with it.</span><button type="button" class="light small" id="tutorPhotoX">✕ Remove</button></div>` : ""}
       <div class="row">
         <input id="tutorInput" placeholder="Write or speak your question…" style="flex:1" ${tutorBusy ? "disabled" : ""}>
+        <button type="button" class="light" id="tutorPhotoBtn" title="Ask with a photo" ${tutorBusy ? "disabled" : ""}>📷 Photo</button>
         ${voiceSupported() ? `<button type="button" class="light" id="tutorMic" title="Ask by speaking" ${tutorBusy ? "disabled" : ""}>🎤</button>` : ""}
         <button type="submit" ${tutorBusy ? "disabled" : ""}>Ask ➤</button>
       </div>
+      <input type="file" id="tutorPhotoFile" accept="image/*" style="display:none">
       ${tutorChat.length ? `<button type="button" class="light small" id="tutorClear" style="margin-top:8px">🧹 Clear chat</button>` : ""}
     </form>`;
   const send = async (text) => {
-    const q = (text || "").trim(); if (!q || tutorBusy) return;
-    tutorChat.push({ role: "me", text: q });
+    const q = (text || "").trim();
+    const photo = tutorPhoto;
+    if (tutorBusy || (!q && !photo)) return;
+    tutorChat.push({ role: "me", text: q, img: photo ? photo.url : null });
+    tutorPhoto = null;
     tutorBusy = true; renderTutor();
     const history = tutorChat.slice(0, -1).map(m => ({ role: m.role === "ai" ? "ai" : "user", text: m.text }));
     const modePrefix = { easy: "इसे बहुत आसान भाषा में, रोज़ के उदाहरण से समझाओ: ", exam: "इसे परीक्षा के उत्तर की शैली में, मुख्य बिंदुओं के साथ समझाओ: " };
-    const outQ = tutorMode === "normal" ? q : (modePrefix[tutorMode] || "") + q;
-    const { data, error } = await sb.functions.invoke("ask-tutor", { body: { question: outQ, history } });
+    const askQ = q || "Explain the question in this photo and give its answer.";
+    const outQ = tutorMode === "normal" ? askQ : (modePrefix[tutorMode] || "") + askQ;
+    const body = { question: outQ, history };
+    if (photo) body.image = { data: photo.data, mimeType: "image/jpeg" };
+    const { data, error } = await sb.functions.invoke("ask-tutor", { body });
     tutorBusy = false;
     if (error || !data?.answer) tutorChat.push({ role: "ai", text: "Sorry, I couldn't prepare an answer right now. Please try again in a little while." });
     else tutorChat.push({ role: "ai", text: data.answer });
     renderTutor();
   };
   document.getElementById("tutorForm").onsubmit = (e) => { e.preventDefault(); send(document.getElementById("tutorInput").value); };
+  const tpb = document.getElementById("tutorPhotoBtn");
+  const tpf = document.getElementById("tutorPhotoFile");
+  if (tpb && tpf) {
+    tpb.onclick = () => tpf.click();
+    tpf.onchange = async () => {
+      const f = tpf.files[0]; tpf.value = "";
+      if (!f) return;
+      try { tutorPhoto = await photoToBase64(f); renderTutor(); }
+      catch (_) { toast("Could not read that photo — try another one"); }
+    };
+  }
+  const tpx = document.getElementById("tutorPhotoX");
+  if (tpx) tpx.onclick = () => { tutorPhoto = null; renderTutor(); };
   const tmic = document.getElementById("tutorMic");
   if (tmic) tmic.onclick = () => startVoice(document.getElementById("tutorInput"), tmic);
   $app.querySelectorAll("[data-sayidx]").forEach(b => b.onclick = () => speakText(tutorChat[+b.dataset.sayidx].text, b));
@@ -3222,9 +3368,14 @@ async function renderStudio() {
     try {
       const { data, error } = await sb.functions.invoke("video-study", { body: { youtube_url: url, class_label, subject, chapter, language_mode, mcq_count, difficulty } });
       if (error) {
-        let msg = error.message || "Generation failed";
+        // Show the function's REAL error when it sent one; only a bare
+        // transport failure (no response — timeout / network) gets the
+        // honest retry message. Never disguise the real error.
+        let msg = null;
         try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (_) {}
-        if (/failed to send|fetch|404|not found/i.test(msg)) msg = "Video Studio is still being set up on the server — please try again later.";
+        if (!msg) msg = /failed to send|fetch|timeout|timed out|network/i.test(error.message || "")
+          ? "Generation timed out — try a shorter video or try again."
+          : (error.message || "Generation failed");
         throw new Error(msg);
       }
       if (!data || !data.payload) throw new Error("The AI returned nothing — please try again.");
