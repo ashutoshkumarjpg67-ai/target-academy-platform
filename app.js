@@ -2295,33 +2295,33 @@ async function renderMore() {
         <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span></div>`).join("") || `<p class="muted">अभी कोई फ़ीस रिकॉर्ड नहीं है।</p>`}
     </div>` : ""}
     <div class="card"><h3>📚 पढ़ाई • Study</h3>
-      <div class="hubrow" data-nav="study"><span class="hic" style="background:#e8f1fe">📚</span><span class="hub-tx"><span class="hub-t">नोट्स और मटेरियल</span><span class="hub-d">Notes & Material — क्लास नोट्स, PDF और वीडियो</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="homework"><span class="hic" style="background:#e2f4ec">📒</span><span class="hub-tx"><span class="hub-t">होमवर्क</span><span class="hub-d">Homework — शिक्षकों के दिए काम</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="timetable"><span class="hic" style="background:#e8f1fe">🗓️</span><span class="hub-tx"><span class="hub-t">समय-सारणी</span><span class="hub-d">Timetable — आपकी क्लास का समय</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="live"><span class="hic" style="background:#fdecea">📺</span><span class="hub-tx"><span class="hub-t">Live Class</span><span class="hub-d">लाइव क्लास — आने वाले लाइव सेशन</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="study"><span class="hic" style="background:#e8f1fe">📚</span><span class="hub-tx"><span class="hub-t">Notes & Material</span><span class="hub-d">Class notes, PDFs and videos</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="homework"><span class="hic" style="background:#e2f4ec">📒</span><span class="hub-tx"><span class="hub-t">Homework</span><span class="hub-d">Assignments from your teachers</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="timetable"><span class="hic" style="background:#e8f1fe">🗓️</span><span class="hub-tx"><span class="hub-t">Timetable</span><span class="hub-d">Your class schedule</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="live"><span class="hic" style="background:#fdecea">📺</span><span class="hub-tx"><span class="hub-t">Live Class</span><span class="hub-d">Upcoming live sessions</span></span><span class="arr">›</span></div>
     </div>
     <div class="card"><h3>📝 टेस्ट और प्रगति • Tests & Progress</h3>
-      <div class="hubrow" data-nav="tests"><span class="hic" style="background:#fff4cf">📝</span><span class="hub-tx"><span class="hub-t">टेस्ट</span><span class="hub-d">Tests — अभ्यास टेस्ट और परीक्षाएँ</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="top"><span class="hic" style="background:#fff4cf">🏆</span><span class="hub-tx"><span class="hub-t">Leaderboard</span><span class="hub-d">मेरिट सूची — Academy के टॉप छात्र</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="attendance"><span class="hic" style="background:#e2f4ec">✅</span><span class="hub-tx"><span class="hub-t">उपस्थिति</span><span class="hub-d">Attendance — हाज़िरी का रिकॉर्ड</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="tests"><span class="hic" style="background:#fff4cf">📝</span><span class="hub-tx"><span class="hub-t">Tests</span><span class="hub-d">Practice tests and exams</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="top"><span class="hic" style="background:#fff4cf">🏆</span><span class="hub-tx"><span class="hub-t">Leaderboard</span><span class="hub-d">Top performers of the academy</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="attendance"><span class="hic" style="background:#e2f4ec">✅</span><span class="hub-tx"><span class="hub-t">Attendance</span><span class="hub-d">Attendance records</span></span><span class="arr">›</span></div>
     </div>
     <div class="card"><h3>💬 मदद • Help</h3>
-      <div class="hubrow" data-nav="doubts"><span class="hic" style="background:#fdecea">❓</span><span class="hub-tx"><span class="hub-t">Doubts</span><span class="hub-d">सवाल पूछें — जवाब पाएँ</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="tutor"><span class="hic" style="background:#e8f1fe">🤖</span><span class="hub-tx"><span class="hub-t">AI Tutor</span><span class="hub-d">AI शिक्षक — कदम-दर-कदम सीखें</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="notif"><span class="hic" style="background:#fff4cf">🔔</span><span class="hub-tx"><span class="hub-t">सूचनाएँ</span><span class="hub-d">Notifications — सभी ताज़ा अपडेट</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="doubts"><span class="hic" style="background:#fdecea">❓</span><span class="hub-tx"><span class="hub-t">Doubts</span><span class="hub-d">Ask a question, get an answer</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="tutor"><span class="hic" style="background:#e8f1fe">🤖</span><span class="hub-tx"><span class="hub-t">AI Tutor</span><span class="hub-d">Learn anything, step by step</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="notif"><span class="hic" style="background:#fff4cf">🔔</span><span class="hub-tx"><span class="hub-t">Notifications</span><span class="hub-d">All the latest updates</span></span><span class="arr">›</span></div>
     </div>
     ${isStaff() ? `<div class="card"><h3>🛠 बनाएँ और प्रबंधन • Create & Manage</h3>
-      <div class="hubrow" data-nav="studio"><span class="hic" style="background:#fdecea">🎬</span><span class="hub-tx"><span class="hub-t">Video Studio</span><span class="hub-d">वीडियो स्टूडियो — YouTube पाठ → नोट्स और MCQ</span></span><span class="arr">›</span></div>
-      <div class="hubrow" data-nav="manage"><span class="hic" style="background:#e8f1fe">🛠️</span><span class="hub-tx"><span class="hub-t">प्रबंध</span><span class="hub-d">Manage — कक्षाएँ, विषय, प्रश्न और कंटेंट</span></span><span class="arr">›</span></div>
-      ${profile.role === "admin" ? `<div class="hubrow" data-nav="users"><span class="hic" style="background:#fff4cf">👥</span><span class="hub-tx"><span class="hub-t">उपयोगकर्ता</span><span class="hub-d">Users — छात्र, शिक्षक और नामांकन</span></span><span class="arr">›</span></div>` : ""}
+      <div class="hubrow" data-nav="studio"><span class="hic" style="background:#fdecea">🎬</span><span class="hub-tx"><span class="hub-t">Video Studio</span><span class="hub-d">YouTube lesson → notes & MCQs</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="manage"><span class="hic" style="background:#e8f1fe">🛠️</span><span class="hub-tx"><span class="hub-t">Manage</span><span class="hub-d">Classes, subjects, questions & content</span></span><span class="arr">›</span></div>
+      ${profile.role === "admin" ? `<div class="hubrow" data-nav="users"><span class="hic" style="background:#fff4cf">👥</span><span class="hub-tx"><span class="hub-t">Users</span><span class="hub-d">Students, teachers & enrollments</span></span><span class="arr">›</span></div>` : ""}
     </div>` : ""}
     <div class="card"><h3>👤 खाता • Account</h3>
-      <div class="hubrow" data-nav="fees"><span class="hic" style="background:#fff4cf">💰</span><span class="hub-tx"><span class="hub-t">💰 मेरी फ़ीस • My Fees</span><span class="hub-d">Fees — फ़ीस रिकॉर्ड और भुगतान</span>${(profile.role === "student" || profile.role === "parent") && feeDueTotal > 0 ? `<span class="hub-d" style="color:var(--bad); font-weight:700">कुल बकाया: ₹${feeDueTotal.toLocaleString("en-IN")}</span>` : ""}</span><span class="arr">›</span></div>
-      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>मेरी कक्षाएँ • My Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
+      <div class="hubrow" data-nav="fees"><span class="hic" style="background:#fff4cf">💰</span><span class="hub-tx"><span class="hub-t">My Fees</span><span class="hub-d">Fee records and payments</span>${(profile.role === "student" || profile.role === "parent") && feeDueTotal > 0 ? `<span class="hub-d" style="color:var(--bad); font-weight:700">Total due: ₹${feeDueTotal.toLocaleString("en-IN")}</span>` : ""}</span><span class="arr">›</span></div>
+      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>My Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
     </div>
-    <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 लॉग आउट • Logout</button>`;
+    <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 Logout</button>`;
   $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
 }
 
@@ -2439,12 +2439,12 @@ async function renderNotifs() {
           ? `<p style="margin:10px 0 0">✅ इस फ़ोन पर सूचनाएँ चालू हैं।</p>`
           : Notification.permission === "denied"
             ? `<p style="margin:10px 0 0">⚠️ ब्राउज़र ने सूचनाएँ रोक रखी हैं — Chrome की Site Settings में Notifications की अनुमति दें।</p>`
-            : `<button id="npBtn" style="margin-top:10px">📲 चालू करें • Enable</button>`)
+            : `<button id="npBtn" style="margin-top:10px">📲 Turn on Phone Notifications</button>`)
         : `<p style="margin:10px 0 0">यह ब्राउज़र फ़ोन सूचना नहीं देता — ऐप को Chrome में खोलें।</p>`}
     </div>
     <div class="card"><h3 style="margin:0">🔔 मेरी सूचनाएँ • My Notifications ${unread ? `<span class="pill green">${unread} नई</span>` : ""}</h3>
       <p class="muted" style="margin:6px 0 0">Academy की सभी ताज़ा जानकारी — नोटिस, नए टेस्ट, Doubt के जवाब — यहाँ मिलेगी।</p>
-      ${unread ? `<button class="light" id="nReadAll" style="margin-top:10px">✓ सभी पढ़ा हुआ करें • Mark all read</button>` : ""}
+      ${unread ? `<button class="light" id="nReadAll" style="margin-top:10px">✓ Mark all as read</button>` : ""}
     </div>
     ${(rows || []).map(n => `
       <div class="card" data-nread="${n.id}" style="cursor:pointer;${n.is_read ? "opacity:.72" : ""}">
