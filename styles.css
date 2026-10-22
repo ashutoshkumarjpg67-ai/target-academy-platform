@@ -503,9 +503,10 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .pagehead{
   display:flex; align-items:center; gap:13px;
   width:calc(100% - 28px); max-width:880px; margin:16px auto 0;
-  background:linear-gradient(120deg,var(--navy) 10%,var(--navy2) 60%,var(--navy3));
-  border-radius:18px; padding:14px 16px; color:#fff;
-  box-shadow:var(--shadow); border-bottom:3px solid var(--gold);
+  background:var(--card);
+  border:1px solid var(--line); border-bottom:3px solid var(--gold);
+  border-radius:18px; padding:14px 16px; color:var(--navy);
+  box-shadow:var(--shadow-sm);
   animation:rise .35s ease both;
 }
 @media (min-width:900px){ .pagehead{max-width:1060px; width:calc(100% - 48px); margin-top:20px} }
@@ -514,8 +515,8 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
   background:linear-gradient(145deg,var(--gold2),var(--gold)); font-size:22px;
   box-shadow:0 4px 12px rgba(242,183,5,.45), inset 0 1px 0 rgba(255,255,255,.6);
 }
-.ph-t{font-weight:900; font-size:18px; line-height:1.15}
-.ph-s{font-size:12.5px; color:#bcd2f2; margin-top:2px; line-height:1.35}
+.ph-t{font-weight:900; font-size:18px; line-height:1.15; color:var(--navy)}
+.ph-s{font-size:12.5px; color:var(--muted); margin-top:2px; line-height:1.35}
 .side-group{
   font-size:10.5px; font-weight:900; letter-spacing:1.4px; text-transform:uppercase;
   color:#7f9cc4; padding:14px 13px 4px;
@@ -626,3 +627,9 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .prof-head{display:flex; align-items:center; justify-content:space-between; margin:2px 0 12px}
 .prof-title{margin:0; font-size:19px; font-weight:900; color:var(--navy)}
 .prof-gear{border-radius:11px}
+
+/* ---------- v42: staff after-login redesign (dashboard, staff nav, page heads) ---------- */
+.qa-grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+.qa-grid3 .qa{margin:0}
+.side-group{text-transform:none; letter-spacing:.4px; font-size:11.5px}
+#tabbar button{font-size:12px}

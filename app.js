@@ -283,20 +283,20 @@ $logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
 /* ---------------- Shell + tabs ---------------- */
 const TABHEAD = {
-  study: ["📚", "Notes & Study Material", "Notes, PDFs and videos — only for your classes"],
-  tests: ["📝", "Tests", "Practice tests and exams for your classes"],
-  fees: ["💰", "Fees", "Fee records and payments"],
-  doubts: ["❓", "Doubts", "Ask a question — teachers and AI will answer"],
-  tutor: ["🤖", "AI Tutor", "Learn anything, step by step"],
-  live: ["📺", "Live Classes", "Upcoming live sessions"],
-  top: ["🏆", "Leaderboard", "Top performers of the academy"],
-  homework: ["📒", "Homework", "Assignments given by your teachers"],
-  attendance: ["✅", "Attendance", "Attendance records"],
-  timetable: ["🗓️", "Timetable", "Your class schedule"],
-  notif: ["🔔", "Notifications", "All the latest updates"],
-  manage: ["🛠️", "Manage", "Classes, subjects, questions, tests and content"],
-  users: ["👥", "Users", "Students, teachers and class enrollments"],
-  studio: ["🎬", "Video Studio", "Turn a YouTube lesson into notes and MCQs"],
+  study: ["📚", "स्टडी मटेरियल • Study Material", "नोट्स, PDF और वीडियो — आपकी कक्षाओं के लिए"],
+  tests: ["📝", "टेस्ट • Tests", "आपकी कक्षाओं के अभ्यास टेस्ट और परीक्षाएँ"],
+  fees: ["💰", "फ़ीस • Fees", "फ़ीस रिकॉर्ड और भुगतान"],
+  doubts: ["❓", "Doubts • सवाल-जवाब", "सवाल पूछें — शिक्षक और AI जवाब देंगे"],
+  tutor: ["🤖", "AI Tutor • AI शिक्षक", "कुछ भी सीखें, कदम-दर-कदम"],
+  live: ["📺", "Live Class • लाइव क्लास", "आने वाली लाइव कक्षाएँ"],
+  top: ["🏆", "Leaderboard • मेरिट सूची", "Academy के टॉप छात्र"],
+  homework: ["📒", "होमवर्क • Homework", "शिक्षकों के दिए हुए काम"],
+  attendance: ["✅", "उपस्थिति • Attendance", "उपस्थिति रिकॉर्ड"],
+  timetable: ["🗓️", "समय-सारणी • Timetable", "कक्षा की समय-सारणी"],
+  notif: ["🔔", "सूचनाएँ • Notifications", "सभी ताज़ा जानकारी"],
+  manage: ["🛠️", "प्रबंध • Manage", "कक्षाएँ, विषय, प्रश्न, टेस्ट और मटेरियल"],
+  users: ["👥", "उपयोगकर्ता • Users", "छात्र, शिक्षक और कक्षा नामांकन"],
+  studio: ["🎬", "Video Studio • वीडियो स्टूडियो", "YouTube पाठ से नोट्स और MCQ बनाएँ"],
 };
 function setPageHead() {
   const ph = document.getElementById("pagehead");
@@ -316,37 +316,44 @@ function renderShell() {
   else if (tab !== lastTab && !navFromPop) { try { history.pushState({ tab }, ""); } catch (e) {} }
   lastTab = tab; navFromPop = false; curView = "tab";
   const tabs = [
-    { id: "home", ic: "🏠", label: "Home" },
-    { id: "study", ic: "📚", label: "Notes" },
-    { id: "tests", ic: "📝", label: "Tests" },
-    { id: "fees", ic: "💰", label: "Fees" },
-    ...(isStaff() ? [{ id: "manage", ic: "🛠️", label: "Manage" }] : []),
-    ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "Users" }] : []),
-    { id: "more", ic: "☰", label: "More" },
+    { id: "home", ic: "🏠", label: "डैशबोर्ड" },
+    { id: "study", ic: "📚", label: "स्टडी" },
+    { id: "tests", ic: "📝", label: "टेस्ट" },
+    { id: "fees", ic: "💰", label: "फ़ीस" },
+    ...(isStaff() ? [{ id: "manage", ic: "🛠️", label: "प्रबंध" }] : []),
+    ...(profile.role === "admin" ? [{ id: "users", ic: "👥", label: "उपयोगकर्ता" }] : []),
+    { id: "more", ic: "☰", label: "अधिक" },
   ];
   document.body.classList.remove("auth-mode");
-  const barIds = ["home", "study", "tests", "fees"];
+  const staffBar = [
+    ["home", "🏠", "डैशबोर्ड"],
+    ...(profile.role === "admin" ? [["users", "👥", "छात्र"]] : []),
+    ["manage", "🛠️", "पढ़ाई"],
+    ["fees", "💰", "फ़ीस"],
+    ["more", "☰", "अधिक"],
+  ];
+  const staffBarIds = staffBar.map(([id]) => id);
   const navHTML = !isStaff()
     ? [["home", "🏠", "होम"], ["study", "📚", "स्टडी"], ["tests", "📝", "टेस्ट"], ["profile", "👤", "प्रोफ़ाइल"]].map(([id, ic, label]) => `<button data-tab="${id}" class="${tab === id ? "active" : ""}"><span class="ic">${ic}</span>${label}</button>`).join("")
-    : tabs.filter(t => [...barIds, "more"].includes(t.id)).map(t => `<button data-tab="${t.id}" class="${t.id === "more" ? (barIds.includes(tab) ? "" : "active") : (tab === t.id ? "active" : "")}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+    : staffBar.map(([id, ic, label]) => `<button data-tab="${id}" class="${tab === id || (id === "more" && !staffBarIds.includes(tab)) ? "active" : ""}"><span class="ic">${ic}</span>${label}</button>`).join("");
   const extraTabs = [
-    { id: "doubts", ic: "❓", label: "Doubts" },
+    { id: "doubts", ic: "❓", label: "Doubts सवाल" },
     { id: "tutor", ic: "🤖", label: "AI Tutor" },
     { id: "live", ic: "📺", label: "Live Class" },
     { id: "top", ic: "🏆", label: "Leaderboard" },
-    { id: "homework", ic: "📒", label: "Homework" },
-    { id: "attendance", ic: "✅", label: "Attendance" },
-    { id: "timetable", ic: "🗓️", label: "Timetable" },
+    { id: "homework", ic: "📒", label: "होमवर्क" },
+    { id: "attendance", ic: "✅", label: "उपस्थिति" },
+    { id: "timetable", ic: "🗓️", label: "समय-सारणी" },
     ...(isStaff() ? [{ id: "studio", ic: "🎬", label: "Video Studio" }] : []),
   ];
   const byId = {};
   [...tabs, ...extraTabs].forEach(t => { byId[t.id] = t; });
   const sideGroups = [
-    ["Main", ["home", "study", "tests", "fees"]],
-    ["Learn", ["homework", "live", "timetable"]],
-    ["Help & Progress", ["doubts", "tutor", "top", "attendance"]],
-    ...(isStaff() ? [["Staff", ["manage", "studio", ...(profile.role === "admin" ? ["users"] : [])]]] : []),
-    ["Account", ["more"]],
+    ["मुख्य • Main", ["home", "study", "tests", "fees"]],
+    ["पढ़ाई • Learn", ["homework", "live", "timetable"]],
+    ["सहायता और प्रगति • Help & Progress", ["doubts", "tutor", "top", "attendance"]],
+    ...(isStaff() ? [["स्टाफ़ • Staff", ["manage", "studio", ...(profile.role === "admin" ? ["users"] : [])]]] : []),
+    ["खाता • Account", ["more"]],
   ];
   const sideHTML = sideGroups.map(([label, ids]) => {
     const btns = ids.map(id => byId[id]).filter(Boolean).map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
@@ -484,7 +491,8 @@ async function renderHome() {
   }
 
   // ---- Staff / Admin dashboard ----
-  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { data: profs }, { count: dc }, { data: sLives }, { data: feeRows }] = await Promise.all([
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { data: profs }, { count: dc }, { data: sLives }, { data: feeRows }, { data: attToday }, { data: ttAll }, { data: subjAll }, { data: feeAll }, { data: recentFees }] = await Promise.all([
     sb.from("profiles").select("*", { count: "exact", head: true }).eq("role", "student"),
     sb.from("questions").select("*", { count: "exact", head: true }),
     sb.from("tests").select("*", { count: "exact", head: true }),
@@ -495,6 +503,11 @@ async function renderHome() {
     sb.from("doubts").select("*", { count: "exact", head: true }).eq("status", "open"),
     sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
     sb.from("fee_records").select("paid_amount").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+    sb.from("attendance").select("status").eq("on_date", todayISO),
+    sb.from("timetable_entries").select("*"),
+    sb.from("subjects").select("id,name,class_id"),
+    sb.from("fee_records").select("amount,paid_amount"),
+    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(3),
   ]);
   const nameOf = (id) => (profs || []).find(p => p.id === id)?.full_name || "Student";
   let greetPhoto = null;
@@ -503,49 +516,86 @@ async function renderHome() {
     greetPhoto = sg?.signedUrl || null;
   }
   const monthFees = (feeRows || []).reduce((s, r) => s + (+r.paid_amount || 0), 0);
+  const totalDueAll = (feeAll || []).reduce((s, r) => s + Math.max(0, +r.amount - +r.paid_amount), 0);
+  const attMarked = (attToday || []).length;
+  const attPresentN = (attToday || []).filter(r => r.status === "present").length;
+  const attPctToday = attMarked ? Math.round((attPresentN / attMarked) * 100) : null;
+  const todayWdS = new Date().getDay();
+  const clsNameS = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
+  const subNameS = (id) => (subjAll || []).find(s => s.id === id)?.name || "क्लास";
+  const todayClasses = (ttAll || []).filter(e => e.weekday === todayWdS)
+    .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
+  const todayStr = new Date().toLocaleDateString("hi-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   $app.innerHTML = `
-    ${greetHTML("Every child's success is our identity 🌟", greetPhoto)}
-    <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="Search notes, videos, PDFs…"><button class="small gold" id="homeGo">Search</button></div>
-    ${qaHTML([
-      { go: "manage", ic: "🏫", label: "Classes", bg: "#e8effe" },
-      { go: "tests", ic: "📝", label: "Tests", bg: "#fde8e8" },
-      { go: "study", ic: "📚", label: "Content", bg: "#e2f4ec" },
-      profile.role === "admin"
-        ? { go: "users", ic: "👥", label: "Students", bg: "#fdf3d7" }
-        : { go: "more", ic: "👤", label: "My Profile", bg: "#fdf3d7" },
-    ])}
-    <div class="card"><h3>📊 Academy at a Glance</h3>
+    <div class="dash-head">
+      <div class="avatar">${greetPhoto ? `<img src="${greetPhoto}" alt="">` : esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
+      <div style="flex:1; min-width:0">
+        <div class="dh-name">नमस्ते, ${esc(profile.full_name)} 🙏</div>
+        <div class="dh-sub">Target Academy • ${todayStr}</div>
+      </div>
+    </div>
+    <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="नोट्स, वीडियो, PDF खोजें…"><button class="small gold" id="homeGo">खोजें</button></div>
+    <div class="stile-grid">
+      <div class="stile" ${profile.role === "admin" ? `data-go="users"` : ""}><span class="si2" style="background:#e8f1fe">👥</span><div class="sl">कुल छात्र</div><div class="sv">${sc ?? 0}</div><div class="ssub">Academy में कुल छात्र</div></div>
+      <div class="stile" data-go="attendance"><span class="si2" style="background:#e6f7f0">✅</span><div class="sl">आज की उपस्थिति</div><div class="sv">${attMarked ? attPresentN + "/" + attMarked : "—"}</div><div class="ssub">${attMarked ? attPctToday + "% छात्र उपस्थित" : "आज अभी दर्ज नहीं हुई"}</div></div>
+      <div class="stile" data-go="fees"><span class="si2" style="background:#e2f4ec">💰</span><div class="sl">फ़ीस — इस माह वसूली</div><div class="sv">₹${monthFees.toLocaleString("en-IN")}</div><div class="ssub" style="color:${totalDueAll > 0 ? "var(--bad)" : "var(--ok)"}; font-weight:800">कुल बकाया ₹${totalDueAll.toLocaleString("en-IN")}</div></div>
+      <div class="stile" data-go="doubts"><span class="si2" style="background:#fdecea">❓</span><div class="sl">बिना-जवाब Doubts</div><div class="sv">${dc ?? 0}</div><div class="ssub">${dc ? "जवाब का इंतज़ार है" : "सभी सवालों के जवाब मिल गए 🎉"}</div></div>
+    </div>
+    <div class="card"><h3>⚡ त्वरित कार्य • Quick Actions</h3>
+      <div class="qa-grid3">
+        ${profile.role === "admin" ? `<div class="qa" data-go="users"><div class="qi" style="background:#fdf3d7">👥</div><div class="ql">छात्र जोड़ें</div></div>` : ""}
+        <div class="qa" data-go="attendance"><div class="qi" style="background:#e6f7f0">✅</div><div class="ql">उपस्थिति लगाएँ</div></div>
+        <div class="qa" data-go="fees"><div class="qi" style="background:#e2f4ec">💰</div><div class="ql">फ़ीस</div></div>
+        <div class="qa" data-go="tests"><div class="qi" style="background:#fde8e8">📝</div><div class="ql">Test बनाएँ</div></div>
+        <div class="qa" data-go="study"><div class="qi" style="background:#e2f4ec">📚</div><div class="ql">Notes जोड़ें</div></div>
+        <div class="qa" data-go="manage"><div class="qi" style="background:#e8effe">📢</div><div class="ql">सूचना भेजें</div></div>
+      </div>
+    </div>
+    <div class="card"><h3>🗓️ आज की कक्षाएँ</h3>
+      ${todayClasses.length ? todayClasses.map(e => `<div class="frow"><div class="fic" style="background:#e8f1fe">🕐</div>
+        <div style="flex:1; min-width:0"><div class="ft">${esc(subNameS(e.subject_id))}</div><div class="fs">${esc(clsNameS(e.class_id))} • ${String(e.starts_at || "").slice(0, 5)} – ${String(e.ends_at || "").slice(0, 5)}</div></div>
+        <button class="light small" data-go="timetable">समय-सारणी</button></div>`).join("") : `<p class="muted" style="margin:0">आज कोई क्लास समय-सारणी में नहीं है।</p>`}
+    </div>
+    <div class="card"><h3>📊 Academy एक नज़र में</h3>
       <div class="stats">
-        <div class="stat"><div class="si" style="background:#e8f1fe">👥</div><div class="n">${sc ?? 0}</div><div class="l">Students</div></div>
-        <div class="stat"><div class="si" style="background:#fdf3d7">❓</div><div class="n">${qc ?? 0}</div><div class="l">Questions</div></div>
-        <div class="stat"><div class="si" style="background:#fde8e8">📝</div><div class="n">${tc ?? 0}</div><div class="l">Tests</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">👥</div><div class="n">${sc ?? 0}</div><div class="l">छात्र</div></div>
+        <div class="stat"><div class="si" style="background:#fdf3d7">❓</div><div class="n">${qc ?? 0}</div><div class="l">प्रश्न बैंक</div></div>
+        <div class="stat"><div class="si" style="background:#fde8e8">📝</div><div class="n">${tc ?? 0}</div><div class="l">टेस्ट</div></div>
       </div></div>
-    <div class="card"><h3>📌 Today's Work</h3>
+    <div class="card"><h3>📌 आज का काम</h3>
       <div class="frow" data-go="doubts" style="cursor:pointer"><div class="fic" style="background:#fdecea">❓</div>
-        <div style="flex:1"><div class="ft">Doubts Awaiting Reply</div><div class="fs">Student questions that need your answer</div></div>
+        <div style="flex:1"><div class="ft">जवाब बाकी Doubts</div><div class="fs">छात्रों के सवाल जिन्हें आपका जवाब चाहिए</div></div>
         <span class="pill ${dc ? "red" : "green"}">${dc ?? 0}</span></div>
       <div class="frow" data-go="fees" style="cursor:pointer"><div class="fic" style="background:#e2f4ec">💰</div>
-        <div style="flex:1"><div class="ft">Fees Collected This Month</div><div class="fs">Full details in the Fees section</div></div>
+        <div style="flex:1"><div class="ft">इस माह की फ़ीस वसूली</div><div class="fs">पूरा विवरण फ़ीस सेक्शन में देखें</div></div>
         <span class="pill green">₹${monthFees.toLocaleString("en-IN")}</span></div>
       <div class="frow" data-go="live" style="cursor:pointer"><div class="fic" style="background:#e8f1fe">📺</div>
-        <div style="flex:1"><div class="ft">Upcoming Live Classes</div><div class="fs">${(sLives || []).length ? "Next: " + esc(sLives[0].title) : "None scheduled"}</div></div>
+        <div style="flex:1"><div class="ft">आने वाली Live Classes</div><div class="fs">${(sLives || []).length ? "अगली: " + esc(sLives[0].title) : "कोई तय नहीं है"}</div></div>
         <span class="pill gold">${(sLives || []).length}</span></div>
     </div>
     ${(sLives || []).length ? `<div class="card"><h3>📺 Live Classes</h3>
       ${(sLives || []).slice(0, 3).map(l => { const isLive = new Date(l.starts_at).getTime() <= Date.now(); return `<div class="frow"><div class="fic" style="background:#fdecea">📺</div>
         <div style="flex:1"><div class="ft">${esc(l.title)}</div><div class="fs">${esc((myClasses.find(c => c.id === l.class_id) || {}).name || "")} • 🕐 ${new Date(l.starts_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div></div>
-        ${isLive ? `<button class="gold small" data-join="${esc(l.meet_link)}">▶ Join</button>` : `<span class="pill gold">Coming soon</span>`}</div>`; }).join("")}
+        ${isLive ? `<button class="gold small" data-join="${esc(l.meet_link)}">▶ Join</button>` : `<span class="pill gold">जल्द आ रही है</span>`}</div>`; }).join("")}
     </div>` : ""}
-    <div class="card"><h3>🕘 Recent Activity</h3>
+    <div class="card"><h3>🕘 हाल की गतिविधि</h3>
       ${(recentUsers || []).map(u => `<div class="act"><div class="ai" style="background:#e8effe">👤</div>
-        <div><div class="at">New account: ${esc(u.full_name)} (${esc(u.role)})</div>
+        <div><div class="at">नया खाता: ${esc(u.full_name)} (${esc(roleName(u.role))})</div>
         <div class="as">${new Date(u.created_at).toLocaleString("en-IN")}</div></div></div>`).join("")}
       ${(recentAttempts || []).map(a => `<div class="act"><div class="ai" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">📝</div>
-        <div><div class="at">${esc(nameOf(a.student_id))} took a test — ${a.score}/${a.max_score} (${a.percent}%)</div>
+        <div><div class="at">${esc(nameOf(a.student_id))} ने टेस्ट दिया — ${a.score}/${a.max_score} (${a.percent}%)</div>
         <div class="as">${new Date(a.submitted_at).toLocaleString("en-IN")}</div></div></div>`).join("")}
+      ${(recentFees || []).map(r => `<div class="act"><div class="ai" style="background:#e2f4ec">💰</div>
+        <div><div class="at">${esc(nameOf(r.student_id))} — फ़ीस ₹${(+r.paid_amount || 0).toLocaleString("en-IN")} / ₹${(+r.amount || 0).toLocaleString("en-IN")} (${esc(r.fee_type || "")} • ${esc(r.period || "")})</div>
+        <div class="as">${new Date(r.created_at).toLocaleString("en-IN")}</div></div></div>`).join("")}
       ${(anns || []).map(a => `<div class="act"><div class="ai" style="background:#fdf3d7">📢</div>
         <div><div class="at">${esc(a.title)}</div><div class="as">${esc(a.body || "")}</div></div></div>`).join("")}
-      ${!(recentUsers || []).length && !(recentAttempts || []).length ? `<p>No activity yet.</p>` : ""}
+      ${!(recentUsers || []).length && !(recentAttempts || []).length && !(recentFees || []).length ? `<p class="muted">अभी कोई गतिविधि नहीं है।</p>` : ""}
+    </div>
+    <div class="card"><h3>🧭 सभी सेवाएँ</h3>
+      <div class="hubrow" data-go="top"><span class="hic" style="background:#fff4cf">🏆</span><span class="hub-tx"><span class="hub-t">Leaderboard रिपोर्ट</span><span class="hub-d">Academy के टॉप छात्र और परिणाम</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-go="tests"><span class="hic" style="background:#fde8e8">📊</span><span class="hub-tx"><span class="hub-t">Test परिणाम रिपोर्ट</span><span class="hub-d">किसी भी टेस्ट के नतीजे देखें</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-go="more"><span class="hic" style="background:#e8f1fe">☰</span><span class="hub-tx"><span class="hub-t">सभी सेक्शन और खाता</span><span class="hub-d">Video Studio, प्रबंध, सूचनाएँ — सब कुछ एक जगह</span></span><span class="arr">›</span></div>
     </div>`;
   wireQA();
   const hq2 = document.getElementById("homeQ");
