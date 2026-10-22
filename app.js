@@ -1250,7 +1250,7 @@ async function renderTests() {
     const live = mine.find(a => a.status === "in_progress");
     return `<div class="item"><div>
         <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} min • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>My score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} min • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>My score: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ Pass" : "❌ Fail"}` : ""}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
         <span class="pill ${t.status === "published" ? "green" : ""}">${esc(t.status)}</span>
@@ -1262,7 +1262,7 @@ async function renderTests() {
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
           : t.status === "published" ? (live
             ? `<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
-            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${submitted.length < (t.max_attempts || 1) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? `🔁 Retake Test (${submitted.length}/${t.max_attempts || 1})` : "▶ Start Test"}</button>` : ""}`) : ""}
+            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake Test (${submitted.length}/${t.max_attempts})` : "🔁 Retake Test") : "▶ Start Test"}</button>` : ""}`) : ""}
       </div></div>`;
   };
   const groupedTests = () => {
@@ -1290,12 +1290,12 @@ async function renderTests() {
       <label>Test Name</label><input id="t_title" placeholder="e.g. Science — Chapter 5 Test">
       <div class="row">
         <div><label>Class</label><select id="t_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
-        <div><label>Time (minutes)</label><input id="t_dur" type="number" value="30" min="1"></div>
+        <div><label>Time (minutes)</label><input id="t_dur" type="number" value="60" min="1"></div>
       </div>
       <div class="row">
         <div><label>Negative marking (per wrong answer)</label><input id="t_neg" type="number" value="0" min="0" step="0.25"></div>
         <div><label>Pass %</label><input id="t_pass" type="number" value="33" min="0" max="100"></div>
-        <div><label>Attempts</label><input id="t_max" type="number" value="1" min="1"></div>
+        <div><label>Attempts (0 = Unlimited)</label><input id="t_max" type="number" value="0" min="0"></div>
       </div>
       <label class="checkrow"><input type="checkbox" id="t_instant" checked><span><b>⚡ Practice Mode</b> — as soon as an option is chosen, the student sees correct/wrong + the explanation (the first click counts as the answer; it cannot be changed later)</span></label>
       <label>Choose Questions (from the Question Bank)</label>
@@ -1338,7 +1338,7 @@ async function renderTests() {
         duration_minutes: +document.getElementById("t_dur").value || 30,
         negative_marking: +document.getElementById("t_neg").value || 0,
         passing_percent: +document.getElementById("t_pass").value || 33,
-        max_attempts: +document.getElementById("t_max").value || 1,
+        max_attempts: (() => { const v = document.getElementById("t_max").value.trim(); return v === "" ? 1 : Math.max(0, +v); })(),
         instant_feedback: document.getElementById("t_instant").checked,
         total_marks: total, status: "draft",
       }).select().single();
@@ -1443,7 +1443,7 @@ async function startTest(test, myAttempts) {
   let attempt = (myAttempts || []).find(a => a.status === "in_progress");
   if (!attempt) {
     const doneCount = (myAttempts || []).filter(a => a.status !== "in_progress").length;
-    if (doneCount >= (test.max_attempts || 1)) return toast("All attempts for this test are used up");
+    if (test.max_attempts && doneCount >= test.max_attempts) return toast("All attempts for this test are used up");
     const { data, error } = await sb.from("test_attempts").insert({ test_id: test.id, student_id: me.id }).select().single();
     if (error) return toast("Error: " + error.message);
     attempt = data;
@@ -1643,7 +1643,7 @@ async function showResult(attemptId, test) {
     myTestAttempts = atts || [];
   }
   const submittedCount = myTestAttempts.filter(a => a.status !== "in_progress").length;
-  const canRestart = !!test && !isStaff() && submittedCount < (test.max_attempts || 1);
+  const canRestart = !!test && !isStaff() && (!test.max_attempts || submittedCount < test.max_attempts);
   revState = error ? null : { rows: (review || []).map((r, i) => ({ ...r, _i: i })), filter: "all", page: 0 };
   const pct = attempt ? +attempt.percent || 0 : 0;
   const C = 2 * Math.PI * 44;
@@ -1663,7 +1663,7 @@ async function showResult(attemptId, test) {
     </div>
     <div class="row" style="margin:12px 0">
       <button class="light" id="resBack">← Back to Tests</button>
-      ${canRestart ? `<button class="gold" id="resRestart">🔁 Retake Test (${submittedCount}/${test.max_attempts || 1} attempts used)</button>` : ""}
+      ${canRestart ? `<button class="gold" id="resRestart">🔁 Retake Test (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
     </div>
     ${error ? `<div class="card"><p>A detailed review is not available right now (${esc(error.message)}). Your result is shown above.</p></div>`
     : `<div id="revBox"></div>`}
