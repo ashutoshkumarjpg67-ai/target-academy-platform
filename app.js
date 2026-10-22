@@ -254,6 +254,35 @@ async function boot() {
 $logout.onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
 /* ---------------- Shell + tabs ---------------- */
+const TABHEAD = {
+  study: ["📚", "Notes & Study Material", "Notes, PDFs and videos — only for your classes"],
+  tests: ["📝", "Tests", "Practice tests and exams for your classes"],
+  fees: ["💰", "Fees", "Fee records and payments"],
+  doubts: ["❓", "Doubts", "Ask a question — teachers and AI will answer"],
+  tutor: ["🤖", "AI Tutor", "Learn anything, step by step"],
+  live: ["📺", "Live Classes", "Upcoming live sessions"],
+  top: ["🏆", "Leaderboard", "Top performers of the academy"],
+  homework: ["📒", "Homework", "Assignments given by your teachers"],
+  attendance: ["✅", "Attendance", "Attendance records"],
+  timetable: ["🗓️", "Timetable", "Your class schedule"],
+  notif: ["🔔", "Notifications", "All the latest updates"],
+  manage: ["🛠️", "Manage", "Classes, subjects, questions, tests and content"],
+  users: ["👥", "Users", "Students, teachers and class enrollments"],
+  studio: ["🎬", "Video Studio", "Turn a YouTube lesson into notes and MCQs"],
+};
+function setPageHead() {
+  const ph = document.getElementById("pagehead");
+  if (!ph) return;
+  const h = TABHEAD[tab];
+  if (h) {
+    ph.className = "pagehead";
+    ph.innerHTML = `<div class="ph-ic">${h[0]}</div><div style="min-width:0"><div class="ph-t">${h[1]}</div><div class="ph-s">${h[2]}</div></div>`;
+  } else ph.className = "hidden";
+}
+function hidePageHead() {
+  const ph = document.getElementById("pagehead");
+  if (ph) ph.className = "hidden";
+}
 function renderShell() {
   if (lastTab === null) { try { history.replaceState({ tab }, ""); } catch (e) {} }
   else if (tab !== lastTab && !navFromPop) { try { history.pushState({ tab }, ""); } catch (e) {} }
@@ -280,8 +309,19 @@ function renderShell() {
     { id: "timetable", ic: "🗓️", label: "Timetable" },
     ...(isStaff() ? [{ id: "studio", ic: "🎬", label: "Video Studio" }] : []),
   ];
-  const sideTabs = [...tabs.slice(0, -1), ...extraTabs, tabs[tabs.length - 1]];
-  const sideHTML = sideTabs.map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+  const byId = {};
+  [...tabs, ...extraTabs].forEach(t => { byId[t.id] = t; });
+  const sideGroups = [
+    ["Main", ["home", "study", "tests", "fees"]],
+    ["Learn", ["homework", "live", "timetable"]],
+    ["Help & Progress", ["doubts", "tutor", "top", "attendance"]],
+    ...(isStaff() ? [["Staff", ["manage", "studio", ...(profile.role === "admin" ? ["users"] : [])]]] : []),
+    ["Account", ["more"]],
+  ];
+  const sideHTML = sideGroups.map(([label, ids]) => {
+    const btns = ids.map(id => byId[id]).filter(Boolean).map(t => `<button data-tab="${t.id}" class="${tab === t.id ? "active" : ""}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+    return btns ? `<div class="side-group">${label}</div>${btns}` : "";
+  }).join("");
   $tabbar.innerHTML = navHTML;
   $tabbar.classList.remove("hidden");
   const $sidenav = document.getElementById("sidenav");
@@ -290,6 +330,7 @@ function renderShell() {
     $sidenav.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
+  setPageHead();
   ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, more: renderMore }[tab] || renderHome)();
 }
 
@@ -1413,7 +1454,7 @@ async function renderTestResults(testId) {
 async function previewTest(test) {
   if (!test) return;
   $app.innerHTML = `<div class="loading">Opening the test…</div>`;
-  curView = "preview";
+  curView = "preview"; hidePageHead();
   try { history.pushState({ view: "preview" }, ""); } catch (e) {}
   const { data: tqs } = await sb.from("test_questions").select("question_id, sort_order").eq("test_id", test.id).order("sort_order");
   const ids = (tqs || []).map(x => x.question_id);
@@ -1473,7 +1514,7 @@ async function startTest(test, myAttempts) {
       if (data && data[0]) run.feedback.set(x.question_id, data[0]);
     }));
   }
-  curView = "run";
+  curView = "run"; hidePageHead();
   try { history.pushState({ view: "run" }, ""); } catch (e) {}
   renderRun();
   run.timer = setInterval(tickTimer, 500); tickTimer();
@@ -1717,7 +1758,7 @@ function drawReview() {
 }
 async function showResult(attemptId, test) {
   tab = "tests";
-  curView = "result";
+  curView = "result"; hidePageHead();
   try { history.pushState({ view: "result" }, ""); } catch (e) {}
   $app.innerHTML = `<div class="loading">Loading result…</div>`;
   $tabbar.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === "tests"));
@@ -1807,27 +1848,32 @@ async function renderMore() {
         <div class="s">₹${r.paid_amount} of ₹${r.amount} paid${r.due_date ? ` • Due date: ${esc(r.due_date)}` : ""}</div></div>
         <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span></div>`).join("") || `<p class="muted">No fee records yet.</p>`}
     </div>` : ""}
-    <div class="card"><h3>📂 All Sections</h3>
-      <div class="qa-grid" style="margin-bottom:4px">
-        <div class="qa" data-nav="fees"><div class="qi" style="background:#fff4cf">💰</div><div class="ql">Fees</div></div>
-        <div class="qa" data-nav="doubts"><div class="qi" style="background:#fdecea">❓</div><div class="ql">Doubts</div></div>
-        <div class="qa" data-nav="tutor"><div class="qi" style="background:#e8f1fe">🤖</div><div class="ql">AI Tutor</div></div>
-        ${isStaff() ? `<div class="qa" data-nav="studio"><div class="qi" style="background:#fdecea">🎬</div><div class="ql">Video Studio</div></div>` : ""}
-        <div class="qa" data-nav="live"><div class="qi" style="background:#fdecea">📺</div><div class="ql">Live Class</div></div>
-        <div class="qa" data-nav="top"><div class="qi" style="background:#fff4cf">🏆</div><div class="ql">Leaderboard</div></div>
-        <div class="qa" data-nav="homework"><div class="qi" style="background:#e2f4ec">📒</div><div class="ql">Homework</div></div>
-        <div class="qa" data-nav="attendance"><div class="qi" style="background:#e2f4ec">✅</div><div class="ql">Attendance</div></div>
-        <div class="qa" data-nav="timetable"><div class="qi" style="background:#e8f1fe">🗓️</div><div class="ql">Timetable</div></div>
-        ${isStaff() ? `<div class="qa" data-nav="manage"><div class="qi" style="background:#e8f1fe">🛠️</div><div class="ql">Manage</div></div>` : ""}
-        ${profile.role === "admin" ? `<div class="qa" data-nav="users"><div class="qi" style="background:#fff4cf">👥</div><div class="ql">Users</div></div>` : ""}
-      </div>
-      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>My Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>
-      <div class="menu-item" data-nav="home" style="cursor:pointer"><span class="mi">📈</span>My Progress<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="doubts" style="cursor:pointer"><span class="mi">❓</span>My Doubts<span class="arr">›</span></div>
-      <div class="menu-item" data-nav="notif" style="cursor:pointer"><span class="mi">🔔</span>My Notifications<span class="arr">›</span></div>` : ""}
+    <div class="card"><h3>📚 Study</h3>
+      <div class="hubrow" data-nav="study"><span class="hic" style="background:#e8f1fe">📚</span><span class="hub-tx"><span class="hub-t">Notes & Material</span><span class="hub-d">Class notes, PDFs and videos</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="homework"><span class="hic" style="background:#e2f4ec">📒</span><span class="hub-tx"><span class="hub-t">Homework</span><span class="hub-d">Assignments from your teachers</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="timetable"><span class="hic" style="background:#e8f1fe">🗓️</span><span class="hub-tx"><span class="hub-t">Timetable</span><span class="hub-d">Your class schedule</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="live"><span class="hic" style="background:#fdecea">📺</span><span class="hub-tx"><span class="hub-t">Live Class</span><span class="hub-d">Upcoming live sessions</span></span><span class="arr">›</span></div>
+    </div>
+    <div class="card"><h3>📝 Tests & Progress</h3>
+      <div class="hubrow" data-nav="tests"><span class="hic" style="background:#fff4cf">📝</span><span class="hub-tx"><span class="hub-t">Tests</span><span class="hub-d">Practice tests and exams</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="top"><span class="hic" style="background:#fff4cf">🏆</span><span class="hub-tx"><span class="hub-t">Leaderboard</span><span class="hub-d">Top performers of the academy</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="attendance"><span class="hic" style="background:#e2f4ec">✅</span><span class="hub-tx"><span class="hub-t">Attendance</span><span class="hub-d">Attendance records</span></span><span class="arr">›</span></div>
+    </div>
+    <div class="card"><h3>💬 Help</h3>
+      <div class="hubrow" data-nav="doubts"><span class="hic" style="background:#fdecea">❓</span><span class="hub-tx"><span class="hub-t">Doubts</span><span class="hub-d">Ask a question, get an answer</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="tutor"><span class="hic" style="background:#e8f1fe">🤖</span><span class="hub-tx"><span class="hub-t">AI Tutor</span><span class="hub-d">Learn anything, step by step</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="notif"><span class="hic" style="background:#fff4cf">🔔</span><span class="hub-tx"><span class="hub-t">Notifications</span><span class="hub-d">All the latest updates</span></span><span class="arr">›</span></div>
+    </div>
+    ${isStaff() ? `<div class="card"><h3>🎬 Create & Manage</h3>
+      <div class="hubrow" data-nav="studio"><span class="hic" style="background:#fdecea">🎬</span><span class="hub-tx"><span class="hub-t">Video Studio</span><span class="hub-d">YouTube lesson → notes & MCQs</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="manage"><span class="hic" style="background:#e8f1fe">🛠️</span><span class="hub-tx"><span class="hub-t">Manage</span><span class="hub-d">Classes, subjects, questions & content</span></span><span class="arr">›</span></div>
+      ${profile.role === "admin" ? `<div class="hubrow" data-nav="users"><span class="hic" style="background:#fff4cf">👥</span><span class="hub-tx"><span class="hub-t">Users</span><span class="hub-d">Students, teachers & enrollments</span></span><span class="arr">›</span></div>` : ""}
+    </div>` : ""}
+    <div class="card"><h3>👤 Account</h3>
+      <div class="hubrow" data-nav="fees"><span class="hic" style="background:#fff4cf">💰</span><span class="hub-tx"><span class="hub-t">Fees</span><span class="hub-d">Fee records and payments</span></span><span class="arr">›</span></div>
+      ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>My Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
-      <div class="menu-item"><span class="mi">📱</span>Platform<span class="arr">Target Academy v2</span></div>
     </div>
     <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 Logout</button>`;
   $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });

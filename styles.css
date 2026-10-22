@@ -160,8 +160,8 @@ details.card summary::-webkit-details-marker{display:none}
   background:var(--navy); color:#fff; font-size:12px; margin-right:9px; font-weight:800;
 }
 .option.sel .k{background:var(--gold); color:var(--navy)}
-.option.right::after{content:"✓ सही"; float:right; color:var(--ok); font-weight:900; font-size:13px}
-.option.wrong::after{content:"✗ आपका उत्तर"; float:right; color:var(--bad); font-weight:900; font-size:13px}
+.option.right::after{content:"✓ Correct"; float:right; color:var(--ok); font-weight:900; font-size:13px}
+.option.wrong::after{content:"✗ Your answer"; float:right; color:var(--bad); font-weight:900; font-size:13px}
 .runnav{
   position:fixed; left:10px; right:10px; z-index:21;
   bottom:calc(88px + env(safe-area-inset-bottom));
@@ -498,3 +498,38 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .mrow .expl-box{flex:1 1 100%}
 .mrow select.mok{border-color:var(--ok); background:#e6f7f0}
 .mrow select.mbad{border-color:var(--bad); background:#fdecea}
+
+/* ---------- v39: organisation pass (page heads, grouped hubs, sidebar groups) ---------- */
+.pagehead{
+  display:flex; align-items:center; gap:13px;
+  width:calc(100% - 28px); max-width:880px; margin:16px auto 0;
+  background:linear-gradient(120deg,var(--navy) 10%,var(--navy2) 60%,var(--navy3));
+  border-radius:18px; padding:14px 16px; color:#fff;
+  box-shadow:var(--shadow); border-bottom:3px solid var(--gold);
+  animation:rise .35s ease both;
+}
+@media (min-width:900px){ .pagehead{max-width:1060px; width:calc(100% - 48px); margin-top:20px} }
+.ph-ic{
+  width:46px; height:46px; border-radius:13px; flex:0 0 auto; display:grid; place-items:center;
+  background:linear-gradient(145deg,var(--gold2),var(--gold)); font-size:22px;
+  box-shadow:0 4px 12px rgba(242,183,5,.45), inset 0 1px 0 rgba(255,255,255,.6);
+}
+.ph-t{font-weight:900; font-size:18px; line-height:1.15}
+.ph-s{font-size:12.5px; color:#bcd2f2; margin-top:2px; line-height:1.35}
+.side-group{
+  font-size:10.5px; font-weight:900; letter-spacing:1.4px; text-transform:uppercase;
+  color:#7f9cc4; padding:14px 13px 4px;
+}
+.side-group:first-child{padding-top:0}
+.hubrow{
+  display:flex; align-items:center; gap:12px; padding:11px 2px;
+  border-bottom:1px solid var(--line); cursor:pointer;
+}
+.hubrow:last-child{border-bottom:0; padding-bottom:2px}
+.hubrow:active{background:#f6f9ff}
+@media (hover:hover){ .hubrow:hover{background:#f8fbff} }
+.hic{width:42px; height:42px; border-radius:12px; flex:0 0 auto; display:grid; place-items:center; font-size:19px}
+.hub-tx{flex:1; min-width:0}
+.hub-t{display:block; font-weight:800; font-size:15px; color:var(--navy)}
+.hub-d{display:block; font-size:12px; color:var(--muted); margin-top:1px; line-height:1.35}
+.hubrow .arr{margin-left:auto; color:var(--muted); font-size:19px; font-weight:700}
