@@ -1409,6 +1409,7 @@ async function renderStudy() {
 }
 
 /* ---------------- Fees (student / parent section) ---------------- */
+let feesTab = "monthly"; // v44: student fees tabs (monthly | history)
 async function renderFeesStudent() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const { data: records } = await sb.from("fee_records").select("*").order("created_at", { ascending: false });
@@ -1422,6 +1423,68 @@ async function renderFeesStudent() {
   const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "Class";
   const totalDue = recs.reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
   const totalPaid = recs.reduce((s, r) => s + +r.paid_amount, 0);
+
+  // Student view — monthly fees screen (photo 8)
+  if (profile.role !== "parent") {
+    const HN = ["जनवरी", "फरवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"];
+    const EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const TYPE_HI = { monthly: "मासिक फ़ीस", yearly: "वार्षिक फ़ीस", admission: "प्रवेश फ़ीस", exam: "परीक्षा फ़ीस", other: "अन्य फ़ीस" };
+    const pIdx = (r) => { const m = /^([A-Za-z]{3}) (\d{4})$/.exec((r.period || "").trim()); if (!m) return null; const i = EN.indexOf(m[1]); return i < 0 ? null : (+m[2]) * 12 + i; };
+    const nowD = new Date(); const curIdx = nowD.getFullYear() * 12 + nowD.getMonth();
+    const pillOf = (r) => {
+      const amt = +r.amount, paid = +r.paid_amount;
+      if (paid >= amt) return ["Paid • जमा", "green"];
+      if (paid > 0) return ["Partial • आंशिक", "gold"];
+      const pi = pIdx(r);
+      if (pi !== null && pi > curIdx) return ["Upcoming • आगामी", "grey"];
+      return ["Pending • बाकी", "red"];
+    };
+    const periodHi = (r) => { const pi = pIdx(r); return pi === null ? esc(r.period) : HN[pi % 12] + " " + Math.floor(pi / 12); };
+    const nextDue = recs.filter(r => +r.amount - +r.paid_amount > 0 && r.due_date).sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))[0];
+    const monthly = recs.filter(r => r.fee_type === "monthly").sort((a, b) => (pIdx(b) ?? -1) - (pIdx(a) ?? -1));
+    const others = recs.filter(r => r.fee_type !== "monthly");
+    const history = recs.filter(r => +r.paid_amount > 0).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    const feeRow = (r) => {
+      const [pl, pc] = pillOf(r); const bal = +r.amount - +r.paid_amount;
+      return `<div class="item"><div style="display:flex; gap:10px; align-items:center">
+          <div class="nicon" style="background:#e8f1fe">🗓️</div>
+          <div><div class="t" style="font-size:14.5px">${r.fee_type === "monthly" ? periodHi(r) : esc(TYPE_HI[r.fee_type] || r.fee_type) + " • " + esc(r.period)}</div>
+          <div class="s">${esc(TYPE_HI[r.fee_type] || "")} • ₹${(+r.amount).toLocaleString("en-IN")}${+r.paid_amount ? ` • जमा ₹${(+r.paid_amount).toLocaleString("en-IN")}` : ""}${bal > 0 ? ` • <b style="color:var(--bad)">बाकी ₹${bal.toLocaleString("en-IN")}</b>` : ""}${r.due_date ? ` • देय तिथि: ${new Date(r.due_date + "T00:00:00").toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}` : ""}</div></div></div>
+          <span class="pill ${pc}">${pl}</span></div>`;
+    };
+    $app.innerHTML = `
+      <div class="card"><h3 style="margin-top:0">💰 फ़ीस विवरण • Fee Details</h3>
+        <div class="s muted">कुल बकाया • Total Due</div>
+        <div class="due-big" style="color:${totalDue > 0 ? "var(--bad)" : "var(--ok)"}">₹${totalDue.toLocaleString("en-IN")}</div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px">
+          <span class="pill ${totalDue > 0 ? "red" : "green"}">${totalDue > 0 ? "Pending • बाकी है" : "सब जमा • All Clear 🎉"}</span>
+          ${nextDue ? `<span class="s" style="font-weight:700">अगली देय तिथि: ${new Date(nextDue.due_date + "T00:00:00").toLocaleDateString("hi-IN", { day: "numeric", month: "long", year: "numeric" })}</span>` : ""}
+        </div>
+        <p class="muted" style="margin:10px 0 0">अब तक कुल जमा: ₹${totalPaid.toLocaleString("en-IN")} • ${recs.length} फ़ीस रिकॉर्ड</p>
+      </div>
+      <div class="seg-tabs">
+        <button class="${feesTab === "monthly" ? "on" : ""}" data-ftab="monthly">मासिक फ़ीस</button>
+        <button class="${feesTab === "history" ? "on" : ""}" data-ftab="history">भुगतान इतिहास</button>
+      </div>
+      ${feesTab === "monthly" ? `
+        <div class="card"><h3 style="margin-top:0">🗓️ मासिक फ़ीस • Monthly Fees</h3>
+          ${monthly.map(feeRow).join("") || `<p class="muted" style="margin:0">अभी कोई मासिक फ़ीस रिकॉर्ड नहीं है।</p>`}
+        </div>
+        ${others.length ? `<div class="card"><h3 style="margin-top:0">🧾 अन्य फ़ीस • Other Fees</h3>${others.map(feeRow).join("")}</div>` : ""}`
+      : `
+        <div class="card"><h3 style="margin-top:0">💰 भुगतान इतिहास • Payment History</h3>
+          ${history.map(r => `<div class="item"><div style="display:flex; gap:10px; align-items:center">
+            <div class="nicon" style="background:#e0f5ec">💰</div>
+            <div><div class="t" style="font-size:14.5px">₹${(+r.paid_amount).toLocaleString("en-IN")} जमा</div>
+            <div class="s">${esc(TYPE_HI[r.fee_type] || r.fee_type)} • ${r.fee_type === "monthly" ? periodHi(r) : esc(r.period)} • ${new Date(r.updated_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">₹${(+r.amount - +r.paid_amount).toLocaleString("en-IN")} बाकी</b>` : " • पूरी जमा ✅"}</div></div></div>
+            <span class="pill ${+r.paid_amount >= +r.amount ? "green" : "gold"}">${+r.paid_amount >= +r.amount ? "Paid" : "Partial"}</span></div>`).join("") || `<p class="muted" style="margin:0">अभी कोई भुगतान दर्ज नहीं है।</p>`}
+        </div>`}
+      <div class="card"><h3 style="margin-top:0">ℹ️ फ़ीस कैसे जमा करें</h3>
+        <p class="muted" style="margin:0">फ़ीस Academy कार्यालय (Manikpur, Gopalganj) में जमा करें। जमा होते ही रिकॉर्ड यहाँ दिखने लगेगा और रसीद कार्यालय से मिल जाएगी। Online payment की सुविधा अभी उपलब्ध नहीं है।</p>
+      </div>`;
+    $app.querySelectorAll("[data-ftab]").forEach(b => b.onclick = () => { feesTab = b.dataset.ftab; renderFeesStudent(); });
+    return;
+  }
   const byClass = {};
   recs.forEach(r => { (byClass[r.class_id || 0] = byClass[r.class_id || 0] || []).push(r); });
 
@@ -2263,10 +2326,22 @@ boot();
 
 /* ---------------- Notifications / Live / Leaderboard ---------------- */
 async function renderNotifs() {
-  const { data: rows } = await sb.from("notifications").select("*").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50);
+  const [{ data: rows }, { data: anns }] = await Promise.all([
+    sb.from("notifications").select("*").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
+    sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(30),
+  ]);
+  const annCls = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
   const icons = { announcement: "📢", test: "📝", doubt: "❓", live: "📺", note: "📚", assignment: "📒", fee: "💰", result: "🏆", admission: "✅", welcome: "🎉" };
   const unread = (rows || []).filter(n => !n.is_read).length;
   $app.innerHTML = `
+    ${(anns && anns.length) ? `<div class="card"><h3 style="margin:0 0 4px">📢 सूचनाएँ • Academy Notices</h3>
+      ${(anns || []).map(a => { const bd = a.body ? String(a.body) : ""; return `<div class="item"><div style="display:flex; gap:10px; align-items:flex-start">
+          <div class="nicon" style="background:#e8f1fe">📢</div>
+          <div style="flex:1; min-width:0"><div class="t" style="font-size:14.5px">${esc(a.title)}</div>
+          ${bd ? `<div class="s">${esc(bd.length > 120 ? bd.slice(0, 120) + "…" : bd)}</div>` : ""}
+          <div class="s muted">${new Date(a.created_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short", year: "numeric" })}${a.class_id && annCls(a.class_id) ? " • " + esc(annCls(a.class_id)) : " • सभी छात्र"}</div></div></div>
+          <span class="pill blue">सूचना</span></div>`; }).join("")}
+    </div>` : ""}
     <div class="card"><h3 style="margin:0">📲 Notifications on Phone</h3>
       <p class="muted" style="margin:6px 0 0">When turned on, every new notification (notice, test, doubt reply, live class) will come straight to your phone — even when the app is closed.</p>
       ${pushSupported()
@@ -2736,6 +2811,7 @@ async function renderHomework() {
 
 /* ---------------- Attendance ---------------- */
 let attClassId = null, attDate = null, attMarks = {};
+let attMonth = null; // v44: student attendance calendar month (YYYY-MM)
 async function renderAttendance() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const today = new Date().toISOString().slice(0, 10);
@@ -2780,7 +2856,63 @@ async function renderAttendance() {
     return;
   }
 
-  // Student / parent view
+  // Student view — month calendar (photo 7)
+  if (profile.role !== "parent") {
+    if (!attMonth) { const nd = new Date(); attMonth = nd.getFullYear() + "-" + String(nd.getMonth() + 1).padStart(2, "0"); }
+    const [ay, am] = attMonth.split("-").map(Number);
+    const aPad = (n) => String(n).padStart(2, "0");
+    const aLastDay = new Date(ay, am, 0).getDate();
+    const { data: mrecs } = await sb.from("attendance").select("*").eq("student_id", me.id)
+      .gte("on_date", `${ay}-${aPad(am)}-01`).lte("on_date", `${ay}-${aPad(am)}-${aPad(aLastDay)}`).order("on_date", { ascending: true });
+    const mrows = mrecs || [];
+    const byDate = {}; mrows.forEach(r => { byDate[r.on_date] = r.status; });
+    const mTotal = mrows.length;
+    const mPresent = mrows.filter(r => r.status === "present").length;
+    const mAbsent = mrows.filter(r => r.status === "absent").length;
+    const mLeave = mrows.filter(r => r.status === "leave").length;
+    const mPct = mTotal ? Math.round((mPresent / mTotal) * 100) : 0;
+    const RC = 2 * Math.PI * 44;
+    const moName = new Date(ay, am - 1, 1).toLocaleDateString("hi-IN", { month: "long", year: "numeric" });
+    const firstDow = (new Date(ay, am - 1, 1).getDay() + 6) % 7; // Monday-first
+    let cells = "";
+    for (let i = 0; i < firstDow; i++) cells += `<div class="cal-cell empty"></div>`;
+    for (let d = 1; d <= aLastDay; d++) {
+      const ds = `${ay}-${aPad(am)}-${aPad(d)}`;
+      const st = byDate[ds];
+      cells += `<div class="cal-cell ${st === "present" ? "p" : st === "absent" ? "a" : st === "leave" ? "l" : ""}${ds === today ? " today" : ""}">${d}</div>`;
+    }
+    const stPill = { present: ["उपस्थित", "green"], absent: ["अनुपस्थित", "red"], leave: ["छुट्टी", "gold"] };
+    $app.innerHTML = `
+      <div class="card"><h3 style="margin-top:0">✅ उपस्थिति • Attendance</h3>
+        <div class="cal-head"><button class="light small" id="attPrev">‹ पिछला माह</button><div class="mo">${moName}</div><button class="light small" id="attNext">अगला माह ›</button></div>
+        <div class="cal-grid" id="attCalGrid">${["सो", "मं", "बु", "गु", "शु", "श", "र"].map(d => `<div class="cal-dow">${d}</div>`).join("")}${cells}</div>
+        <div class="cal-legend"><span><span class="dot" style="background:#0e9f6e"></span>उपस्थित</span><span><span class="dot" style="background:#d64541"></span>अनुपस्थित</span><span><span class="dot" style="background:#f2b705"></span>छुट्टी</span></div>
+      </div>
+      <div class="card"><div class="ring-wrap" style="flex-wrap:wrap">
+        <div style="flex:1; min-width:180px"><h3 style="margin:0 0 4px">📊 इस महीने का सार</h3>
+          <div class="drow"><span class="dl">कुल क्लास</span><span class="dv">${mTotal}</span></div>
+          <div class="drow"><span class="dl">उपस्थित</span><span class="dv" style="color:var(--ok)">${mPresent}</span></div>
+          <div class="drow"><span class="dl">अनुपस्थित</span><span class="dv" style="color:var(--bad)">${mAbsent}</span></div>
+          ${mLeave ? `<div class="drow"><span class="dl">छुट्टी</span><span class="dv" style="color:#8a6400">${mLeave}</span></div>` : ""}
+        </div>
+        <div class="ring">
+          <svg width="104" height="104"><circle cx="52" cy="52" r="44" stroke="#e6ecf6" stroke-width="10" fill="none"/>
+          <circle cx="52" cy="52" r="44" stroke="#0e9f6e" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="${RC}" stroke-dashoffset="${RC - (RC * mPct) / 100}"/></svg>
+          <div class="ring-c">${mPct}%<br><span style="font-size:11px; color:var(--muted)">उपस्थिति</span></div>
+        </div>
+      </div></div>
+      <div class="card"><h3 style="margin-top:0">📋 विवरण • Details</h3>
+        ${[...mrows].reverse().map(r => `<div class="item"><div><div class="t" style="font-size:14px">${new Date(r.on_date + "T00:00:00").toLocaleDateString("hi-IN", { weekday: "short", day: "numeric", month: "short" })}</div>
+          <div class="s">${esc(clsName(r.class_id))}</div></div>
+          <span class="pill ${(stPill[r.status] || ["—", "grey"])[1]}">${(stPill[r.status] || ["—"])[0]}</span></div>`).join("") || `<p class="muted" style="margin:0">इस महीने कोई उपस्थिति दर्ज नहीं है।</p>`}
+      </div>`;
+    const setMonth = (delta) => { const d = new Date(ay, am - 1 + delta, 1); attMonth = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); renderAttendance(); };
+    document.getElementById("attPrev").onclick = () => setMonth(-1);
+    document.getElementById("attNext").onclick = () => setMonth(1);
+    return;
+  }
+
+  // Parent view
   const { data: recs } = await sb.from("attendance").select("*").order("on_date", { ascending: false }).limit(60);
   let nameOf = () => "";
   if (profile.role === "parent" && (recs || []).length) {

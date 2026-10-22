@@ -128,6 +128,8 @@ details.card summary::-webkit-details-marker{display:none}
 .pill.gold{background:var(--goldsoft); color:#8a6400}
 .pill.green{background:#e0f5ec; color:var(--ok)}
 .pill.red{background:#fdecea; color:var(--bad)}
+.pill.blue{background:#e8f1fe; color:var(--navy2)}
+.pill.grey{background:#eef1f6; color:var(--muted)}
 
 /* ---------- Bottom tab bar ---------- */
 #tabbar{
@@ -674,3 +676,19 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .drow:last-child{border-bottom:none; padding-bottom:2px}
 .drow .dl{color:var(--muted); font-weight:600; white-space:nowrap}
 .drow .dv{font-weight:800; color:var(--navy); text-align:right}
+
+/* ---------- v44: Attendance calendar / Fees / Notices ---------- */
+.cal-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px}
+.cal-head .mo{font-size:17px; font-weight:900; color:var(--navy)}
+.cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:5px}
+.cal-dow{text-align:center; font-size:12px; font-weight:800; color:var(--muted); padding:4px 0}
+.cal-cell{aspect-ratio:1/1; display:grid; place-items:center; border-radius:11px; font-size:13.5px; font-weight:700; color:var(--ink); background:#f7f9fd; border:1.5px solid transparent}
+.cal-cell.p{background:#e0f5ec; color:var(--ok)}
+.cal-cell.a{background:#fdecea; color:var(--bad)}
+.cal-cell.l{background:#fdf3d7; color:#8a6400}
+.cal-cell.today{border-color:var(--navy); box-shadow:inset 0 0 0 1.5px var(--navy)}
+.cal-cell.empty{background:transparent}
+.cal-legend{display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:12px; font-size:12.5px; color:var(--muted); font-weight:700}
+.cal-legend .dot{display:inline-block; width:11px; height:11px; border-radius:4px; vertical-align:-1px; margin-right:5px}
+.nicon{width:42px; height:42px; border-radius:13px; display:grid; place-items:center; font-size:20px; flex:0 0 auto}
+.due-big{font-size:31px; font-weight:900; color:var(--navy); line-height:1.1}
