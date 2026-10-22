@@ -239,6 +239,13 @@ async function boot() {
   profile = prof;
   const { data: cls } = await sb.from("classes").select("*").order("sort_order");
   myClasses = cls || [];
+  if (!isStaff()) {
+    // Students/parents: ONLY the classes they are enrolled in exist for them
+    // (class-specific tests, notes, timetable, live classes, homework…).
+    const { data: enr } = await sb.from("enrollments").select("class_id").eq("user_id", me.id);
+    const mine = new Set((enr || []).map(e => e.class_id));
+    myClasses = myClasses.filter(c => mine.has(c.id));
+  }
   $logout.classList.remove("hidden");
   if ($bell) { $bell.classList.remove("hidden"); $bell.onclick = () => { tab = "notif"; renderShell(); }; refreshBell(); }
   syncPush();
