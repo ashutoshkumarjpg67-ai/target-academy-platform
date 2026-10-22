@@ -491,7 +491,7 @@ async function renderHome() {
       </div>` : ""}
       <div class="card"><h3>अपडेट</h3>
         <div class="hubrow" data-nav="homework"><span class="hic" style="background:#e2f4ec">📒</span><span class="hub-tx"><span class="hub-t">होमवर्क</span><span class="hub-d">${hwPending ? hwPending + " होमवर्क करना बाकी है" : "सारा होमवर्क पूरा है 🎉"}</span></span>${hwPending ? `<span class="pill gold">${hwPending} बाकी</span>` : ""}<span class="arr">›</span></div>
-        ${(anns || []).slice(0, 2).map(a => `<div class="hubrow" data-nav="notif"><span class="hic" style="background:#fdf3d7">📢</span><span class="hub-tx"><span class="hub-t">${esc(a.title)}</span><span class="hub-d">${new Date(a.created_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}${a.body ? " • " + esc(a.body) : ""}</span></span><span class="arr">›</span></div>`).join("")}
+        ${(anns || []).slice(0, 2).map(a => `<div class="hubrow" data-nav="notif"><span class="hic" style="background:#fdf3d7">📢</span><span class="hub-tx"><span class="hub-t">${esc(a.title)}</span><span class="hub-d">${new Date(a.created_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}${a.body ? " • " + esc(a.body) : ""}</span></span><span class="pill ${annCatMeta[annCatOf(a)].pill}">${annCatOf(a)}</span><span class="arr">›</span></div>`).join("")}
         ${!hwPending && !(anns || []).length ? `<p class="muted" style="margin:4px 0 0">कोई नया अपडेट नहीं है।</p>` : ""}
       </div>`;
     wireQA();
@@ -600,7 +600,7 @@ async function renderHome() {
         <div><div class="at">${esc(nameOf(r.student_id))} — फ़ीस ₹${(+r.paid_amount || 0).toLocaleString("en-IN")} / ₹${(+r.amount || 0).toLocaleString("en-IN")} (${esc(r.fee_type || "")} • ${esc(r.period || "")})</div>
         <div class="as">${new Date(r.created_at).toLocaleString("en-IN")}</div></div></div>`).join("")}
       ${(anns || []).map(a => `<div class="act"><div class="ai" style="background:#fdf3d7">📢</div>
-        <div><div class="at">${esc(a.title)}</div><div class="as">${esc(a.body || "")}</div></div></div>`).join("")}
+        <div style="flex:1"><div class="at">${esc(a.title)}</div><div class="as">${esc(a.body || "")}</div></div><span class="pill ${annCatMeta[annCatOf(a)].pill}">${annCatOf(a)}</span></div>`).join("")}
       ${!(recentUsers || []).length && !(recentAttempts || []).length && !(recentFees || []).length ? `<p class="muted">अभी कोई गतिविधि नहीं है।</p>` : ""}
     </div>
     <div class="card"><h3>🧭 सभी सेवाएँ</h3>
@@ -649,6 +649,7 @@ async function renderManage() {
       <h3>📢 Post a Notice</h3>
       <label>Title</label><input id="annTitle" placeholder="e.g. Holiday tomorrow">
       <label>Details</label><textarea id="annBody" placeholder="Write in detail…"></textarea>
+      <label>श्रेणी • Category</label><select id="annCat"><option value="सूचना">📢 सूचना</option><option value="परीक्षा">📝 परीक्षा</option><option value="छुट्टी">🏖 छुट्टी</option><option value="महत्वपूर्ण">🔴 महत्वपूर्ण</option></select>
       <div class="error" id="annErr"></div>
       <button class="gold" id="annBtn" style="width:100%">Send to All</button>
     </div>`;
@@ -678,7 +679,8 @@ async function renderManage() {
     const body = document.getElementById("annBody").value.trim();
     const err = document.getElementById("annErr");
     if (!title) { err.textContent = "Enter a title"; return; }
-    const { error } = await sb.from("announcements").insert({ author_id: me.id, class_id: null, title, body });
+    const annCategory = document.getElementById("annCat")?.value || "सूचना";
+    const { error } = await sb.from("announcements").insert({ author_id: me.id, class_id: null, title, body, category: annCategory });
     if (error) { err.textContent = error.message; return; }
     const { data: studs } = await sb.from("profiles").select("id").in("role", ["student", "parent"]);
     await notifyUsers((studs || []).map(p => p.id), "announcement", "📢 " + title, body);
@@ -2400,6 +2402,15 @@ sb.auth.onAuthStateChange(() => { /* boot handles routing */ });
 boot();
 
 /* ---------------- Notifications / Live / Leaderboard ---------------- */
+let annFilter = "सभी";
+const ANN_CATS = ["सभी", "परीक्षा", "छुट्टी", "महत्वपूर्ण", "सूचना"];
+const annCatOf = (a) => ["सूचना", "परीक्षा", "छुट्टी", "महत्वपूर्ण"].includes(a?.category) ? a.category : "सूचना";
+const annCatMeta = {
+  "सूचना": { ic: "📢", bg: "#e8f1fe", pill: "blue" },
+  "परीक्षा": { ic: "📝", bg: "#efe7fd", pill: "purple" },
+  "छुट्टी": { ic: "🏖", bg: "#fdf3d7", pill: "gold" },
+  "महत्वपूर्ण": { ic: "🔴", bg: "#fdecea", pill: "red" },
+};
 async function renderNotifs() {
   const [{ data: rows }, { data: anns }] = await Promise.all([
     sb.from("notifications").select("*").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
@@ -2410,12 +2421,15 @@ async function renderNotifs() {
   const unread = (rows || []).filter(n => !n.is_read).length;
   $app.innerHTML = `
     ${(anns && anns.length) ? `<div class="card"><h3 style="margin:0 0 4px">📢 सूचनाएँ • Academy Notices</h3>
-      ${(anns || []).map(a => { const bd = a.body ? String(a.body) : ""; return `<div class="item"><div style="display:flex; gap:10px; align-items:flex-start">
-          <div class="nicon" style="background:#e8f1fe">📢</div>
+      <div class="row" style="margin:10px 0 4px; gap:6px; flex-wrap:wrap">${ANN_CATS.map(c => `<button type="button" class="chip ${annFilter === c ? "on" : ""}" data-annf="${c}">${c}</button>`).join("")}</div>
+      ${((annFilter === "सभी" ? (anns || []) : (anns || []).filter(a => annCatOf(a) === annFilter)).length
+        ? (annFilter === "सभी" ? (anns || []) : (anns || []).filter(a => annCatOf(a) === annFilter)).map(a => { const bd = a.body ? String(a.body) : ""; const cm = annCatMeta[annCatOf(a)]; return `<div class="item"><div style="display:flex; gap:10px; align-items:flex-start">
+          <div class="nicon" style="background:${cm.bg}">${cm.ic}</div>
           <div style="flex:1; min-width:0"><div class="t" style="font-size:14.5px">${esc(a.title)}</div>
           ${bd ? `<div class="s">${esc(bd.length > 120 ? bd.slice(0, 120) + "…" : bd)}</div>` : ""}
           <div class="s muted">${new Date(a.created_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short", year: "numeric" })}${a.class_id && annCls(a.class_id) ? " • " + esc(annCls(a.class_id)) : " • सभी छात्र"}</div></div></div>
-          <span class="pill blue">सूचना</span></div>`; }).join("")}
+          <span class="pill ${cm.pill}">${annCatOf(a)}</span></div>`; }).join("")
+        : `<p class="muted" style="margin:8px 0 0">इस श्रेणी में अभी कोई सूचना नहीं है।</p>`)}
     </div>` : ""}
     <div class="card"><h3 style="margin:0">📲 Notifications on Phone</h3>
       <p class="muted" style="margin:6px 0 0">When turned on, every new notification (notice, test, doubt reply, live class) will come straight to your phone — even when the app is closed.</p>
@@ -2439,6 +2453,7 @@ async function renderNotifs() {
         ${n.body ? `<p class="muted" style="margin:6px 0 0">${esc(n.body)}</p>` : ""}
         <div class="s muted" style="margin-top:6px">${new Date(n.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div>
       </div>`).join("") || `<div class="card"><p class="muted">No notifications yet.</p></div>`}`;
+  $app.querySelectorAll("[data-annf]").forEach(b => b.onclick = () => { annFilter = b.dataset.annf; renderNotifs(); });
   const npBtn = document.getElementById("npBtn");
   if (npBtn) npBtn.onclick = enablePush;
   const allBtn = document.getElementById("nReadAll");
@@ -2574,7 +2589,25 @@ function speakText(text, btn) {
 /* ---------------- AI Tutor ---------------- */
 let tutorChat = [];   // {role:'me'|'ai', text} — kept while the app stays open
 let tutorBusy = false;
+let tutorMode = "normal";   // normal | easy | exam
+let tutorWeak = [];         // student's weak chapters (<70 avg) for suggestion chips
+let tutorWeakLoaded = false;
 async function renderTutor() {
+  if (!isStaff() && !tutorWeakLoaded) {
+    tutorWeakLoaded = true;
+    try {
+      const [{ data: atts }, { data: tsts }, { data: chps }] = await Promise.all([
+        sb.from("test_attempts").select("test_id,percent").eq("student_id", me.id).neq("status", "in_progress"),
+        sb.from("tests").select("id,chapter_id"),
+        sb.from("chapters").select("id,name"),
+      ]);
+      const chapOfTest = {}; (tsts || []).forEach(t => { if (t.chapter_id) chapOfTest[t.id] = t.chapter_id; });
+      const agg = {};
+      (atts || []).forEach(a => { const cid = chapOfTest[a.test_id]; if (!cid || a.percent == null) return; (agg[cid] = agg[cid] || []).push(+a.percent); });
+      const nameOfCh = {}; (chps || []).forEach(c => nameOfCh[c.id] = c.name);
+      tutorWeak = Object.entries(agg).map(([cid, arr]) => ({ id: +cid, name: nameOfCh[cid] || "", avg: arr.reduce((s, x) => s + x, 0) / arr.length })).filter(w => w.name && w.avg < 70).sort((a, b) => a.avg - b.avg).slice(0, 3);
+    } catch (_) { tutorWeak = []; }
+  }
   const chips = ["Explain refraction of light", "What is photosynthesis?", "Why do the angles of a triangle add up to 180°?", "Explain the water cycle", "How do I solve x + 5 = 12?"];
   const bubble = (m, i) => m.role === "me"
     ? `<div class="chatrow me"><div class="bubble me">${esc(m.text)}</div></div>`
@@ -2582,7 +2615,18 @@ async function renderTutor() {
   $app.innerHTML = `
     <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
       <p class="muted" style="margin:6px 0 0">Ask any study question — type it, or tap 🎤 and speak. The AI Tutor will explain it step-by-step in easy Hindi.</p>
+      <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
+        <button type="button" class="chip ${tutorMode === "normal" ? "on" : ""}" data-tmode="normal">🎓 सामान्य</button>
+        <button type="button" class="chip ${tutorMode === "easy" ? "on" : ""}" data-tmode="easy">🪜 आसान भाषा</button>
+        <button type="button" class="chip ${tutorMode === "exam" ? "on" : ""}" data-tmode="exam">📝 Exam Style</button>
+      </div>
       ${tutorChat.length ? "" : `<div class="row" style="margin-top:10px">${chips.map(c => `<button class="light small" data-tchip="${esc(c)}">${esc(c)}</button>`).join("")}</div>`}
+      ${!isStaff() && tutorWeak.length ? `<div style="margin-top:12px"><div class="muted" style="font-weight:700; margin-bottom:6px">🎯 मेरे कमज़ोर अध्याय — Tap करके समझें</div><div class="row" style="gap:6px; flex-wrap:wrap">${tutorWeak.map(w => `<button type="button" class="light small" data-tweak="${esc(w.name)}">🎯 ${esc(w.name)} समझाओ</button>`).join("")}</div></div>` : ""}
+      <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
+        <button type="button" class="light small" data-tfill="मेरे लिए रोज़ का पढ़ने का Plan बनाओ">📌 पढ़ने का Plan बनाओ</button>
+        <button type="button" class="light small" data-tfill="मुझे याद करने के आसान तरीके बताओ">🧠 याद करने के तरीके</button>
+        <button type="button" class="light small" data-tfill="परीक्षा में उत्तर लिखने की शैली समझाओ">✍️ उत्तर लिखने की शैली</button>
+      </div>
     </div>
     <div id="tutorMsgs">${tutorChat.map((m, i) => bubble(m, i)).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 Typing…</div></div>` : ""}</div>
     <form id="tutorForm" class="card">
@@ -2598,7 +2642,9 @@ async function renderTutor() {
     tutorChat.push({ role: "me", text: q });
     tutorBusy = true; renderTutor();
     const history = tutorChat.slice(0, -1).map(m => ({ role: m.role === "ai" ? "ai" : "user", text: m.text }));
-    const { data, error } = await sb.functions.invoke("ask-tutor", { body: { question: q, history } });
+    const modePrefix = { easy: "इसे बहुत आसान भाषा में, रोज़ के उदाहरण से समझाओ: ", exam: "इसे परीक्षा के उत्तर की शैली में, मुख्य बिंदुओं के साथ समझाओ: " };
+    const outQ = tutorMode === "normal" ? q : (modePrefix[tutorMode] || "") + q;
+    const { data, error } = await sb.functions.invoke("ask-tutor", { body: { question: outQ, history } });
     tutorBusy = false;
     if (error || !data?.answer) tutorChat.push({ role: "ai", text: "Sorry, I couldn't prepare an answer right now. Please try again in a little while." });
     else tutorChat.push({ role: "ai", text: data.answer });
@@ -2609,6 +2655,9 @@ async function renderTutor() {
   if (tmic) tmic.onclick = () => startVoice(document.getElementById("tutorInput"), tmic);
   $app.querySelectorAll("[data-sayidx]").forEach(b => b.onclick = () => speakText(tutorChat[+b.dataset.sayidx].text, b));
   $app.querySelectorAll("[data-tchip]").forEach(b => b.onclick = () => send(b.dataset.tchip));
+  $app.querySelectorAll("[data-tmode]").forEach(b => b.onclick = () => { tutorMode = b.dataset.tmode; renderTutor(); });
+  $app.querySelectorAll("[data-tweak]").forEach(b => b.onclick = () => send(b.dataset.tweak + " को आसान उदाहरणों से समझाओ"));
+  $app.querySelectorAll("[data-tfill]").forEach(b => b.onclick = () => { const inp = document.getElementById("tutorInput"); if (inp) { inp.value = b.dataset.tfill; inp.focus(); } });
   const clr = document.getElementById("tutorClear");
   if (clr) clr.onclick = () => { tutorChat = []; renderTutor(); };
   window.scrollTo(0, document.body.scrollHeight);

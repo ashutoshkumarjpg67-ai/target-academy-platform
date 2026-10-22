@@ -129,6 +129,7 @@ details.card summary::-webkit-details-marker{display:none}
 .pill.green{background:#e0f5ec; color:var(--ok)}
 .pill.red{background:#fdecea; color:var(--bad)}
 .pill.blue{background:#e8f1fe; color:var(--navy2)}
+.pill.purple{background:#efe7fd; color:#5b3aa8}
 .pill.grey{background:#eef1f6; color:var(--muted)}
 
 /* ---------- Bottom tab bar ---------- */
