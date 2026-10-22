@@ -10,6 +10,7 @@ const $toast = document.getElementById("toast");
 
 let me = null;        // auth user
 let profile = null;   // profiles row (role, full_name...)
+let pendingRoleHint = null; // role tab chosen on the login screen
 let myClasses = [];   // classes visible to me
 let tab = "home";
 let lastTab = null, navFromPop = false, curView = "tab"; // back-button (history) support
@@ -176,37 +177,59 @@ async function enablePush() {
   toast("📲 Phone notifications are on!");
   if (tab === "notif") renderNotifs();
 }
+/* ---------------- Splash (Phase 1, design photo 1) ---------------- */
+const hideSplash = () => { const s = document.getElementById("splash"); if (!s || s.classList.contains("gone")) return; s.classList.add("gone"); setTimeout(() => s.remove(), 550); };
+window.addEventListener("load", () => setTimeout(hideSplash, 1200));
+setTimeout(hideSplash, 3400);
+
 const roleName = (r) => ({admin:"Admin", teacher:"Teacher", student:"Student", parent:"Parent"}[r] || r);
 
 /* ---------------- Auth screens ---------------- */
+let authRole = "student";
 function renderAuth(mode = "login") {
   document.body.classList.add("auth-mode");
   $tabbar.classList.add("hidden"); $logout.classList.add("hidden"); if ($bell) $bell.classList.add("hidden");
-  $app.innerHTML = `
-    <div class="hero">
-      <img src="icon.svg?v=31" alt="Target Academy logo" class="auth-logo" data-zoom="icon.svg?v=31">
-      <span class="badge">ADMISSION OPEN</span>
-      <h1>Learning for every home 📚</h1>
-      <p>Target Academy's notes, study material and online tests — now in one app. Log in and start studying for your class.</p>
-      <div class="auth-feats"><span class="af">📚 Notes & Material</span><span class="af">📝 Online Tests</span><span class="af">🤖 AI Tutor</span><span class="af">📲 Phone Notifications</span></div>
-    </div>
-    <div class="card">
-      <h3>${mode === "login" ? "Log in" : "Create a new account (Sign up)"}</h3>
-      ${mode === "signup" ? `<label>Full name</label><input id="f_name" autocomplete="name" placeholder="e.g. Rahul Kumar">` : ""}
-      <label>Email</label>
-      <input id="f_email" type="email" autocomplete="email" placeholder="you@example.com">
-      <label>Password</label>
-      <input id="f_pass" type="password" autocomplete="${mode === "login" ? "current-password" : "new-password"}" placeholder="••••••••">
-      <div class="error" id="authErr"></div>
-      <button class="gold" id="authGo" style="width:100%">${mode === "login" ? "Login" : "Create account"}</button>
-      <p style="margin-top:12px">
-        ${mode === "login"
-          ? `Don't have an account? <button class="link" id="authSwap">Sign up</button>`
-          : `Already have an account? <button class="link" id="authSwap">Log in</button>`}
-      </p>
-      <p class="muted">A new account makes you a Student. Teacher/Admin roles are assigned by the Academy.</p>
+  const roleTabs = `
+    <div class="role-tabs" id="roleTabs">
+      ${[["student", "छात्र"], ["teacher", "शिक्षक"], ["admin", "एडमिन"]].map(([r, l]) => `<button type="button" class="rtab ${authRole === r ? "on" : ""}" data-role="${r}">${l}</button>`).join("")}
     </div>`;
+  $app.innerHTML = `
+    <div class="auth-wrap">
+      <div class="auth-brand">
+        <img src="icon.svg?v=31" alt="Target Academy logo" class="auth-logo" data-zoom="icon.svg?v=31">
+        <div class="ab-name">TARGET ACADEMY</div>
+        <div class="ab-sub">COACHING CENTRE</div>
+        <div class="ab-by">By Ashutosh Kumar</div>
+      </div>
+      <div class="card auth-card">
+        <h3 class="auth-h">${mode === "login" ? "लॉगिन करें" : "नया खाता बनाएँ"}</h3>
+        ${roleTabs}
+        ${mode === "signup" ? `<label>पूरा नाम</label><input id="f_name" autocomplete="name" placeholder="जैसे — रवि कुमार">` : ""}
+        <label>ईमेल</label>
+        <input id="f_email" type="email" autocomplete="email" placeholder="you@example.com">
+        <label>पासवर्ड</label>
+        <div class="pw-wrap"><input id="f_pass" type="password" autocomplete="${mode === "login" ? "current-password" : "new-password"}" placeholder="••••••••"><button type="button" class="pw-eye" id="pwEye" aria-label="पासवर्ड देखें">👁️</button></div>
+        ${mode === "login" ? `<div class="auth-row"><label class="remember"><input type="checkbox" id="f_rem" checked> मुझे याद रखें</label><button type="button" class="link" id="authForgot">पासवर्ड भूल गए?</button></div>` : ""}
+        <div class="error" id="authErr"></div>
+        <button class="gold" id="authGo" style="width:100%">${mode === "login" ? "लॉगिन करें" : "खाता बनाएँ"}</button>
+        <div class="auth-or"><span>या</span></div>
+        <button type="button" class="btn-outline" id="authSwap" style="width:100%">${mode === "login" ? "नया खाता बनाएँ" : "पहले से खाता है — लॉगिन करें"}</button>
+        <p class="muted" style="margin-top:12px">नया खाता छात्र के रूप में बनता है। शिक्षक/एडमिन की भूमिका Academy द्वारा दी जाती है।</p>
+      </div>
+    </div>`;
+  $app.querySelectorAll(".rtab").forEach(b => b.onclick = () => { authRole = b.dataset.role; renderAuth(mode); });
+  document.getElementById("pwEye").onclick = () => { const p = document.getElementById("f_pass"); p.type = p.type === "password" ? "text" : "password"; };
   document.getElementById("authSwap").onclick = () => renderAuth(mode === "login" ? "signup" : "login");
+  const forgot = document.getElementById("authForgot");
+  if (forgot) forgot.onclick = async () => {
+    const email = document.getElementById("f_email").value.trim();
+    const err = document.getElementById("authErr");
+    if (!email) { err.textContent = "पहले अपना ईमेल लिखें"; return; }
+    err.textContent = "";
+    const { error } = await sb.auth.resetPasswordForEmail(email);
+    if (error) { err.textContent = error.message; return; }
+    toast("📧 पासवर्ड बदलने का लिंक आपके ईमेल पर भेज दिया गया है");
+  };
   document.getElementById("authGo").onclick = async () => {
     const email = document.getElementById("f_email").value.trim();
     const pass = document.getElementById("f_pass").value;
@@ -221,11 +244,12 @@ function renderAuth(mode = "login") {
         toast("Account created! Now log in (if email confirmation is asked, check your inbox)");
         renderAuth("login");
       } else {
+        pendingRoleHint = authRole;
         const { error } = await sb.auth.signInWithPassword({ email, password: pass });
         if (error) throw error;
         await boot();
       }
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { pendingRoleHint = null; err.textContent = e.message; }
   };
 }
 
@@ -237,6 +261,10 @@ async function boot() {
   const { data: prof, error } = await sb.from("profiles").select("*").eq("id", me.id).single();
   if (error || !prof) { $app.innerHTML = `<div class="card"><h3>Profile not found</h3><p>Please contact the Academy.</p></div>`; return; }
   profile = prof;
+  if (pendingRoleHint) {
+    if (profile.role !== pendingRoleHint) toast("यह खाता " + ({ student: "छात्र", teacher: "शिक्षक", admin: "एडमिन", parent: "अभिभावक" }[profile.role] || profile.role) + " के रूप में है — उसी से लॉगिन हो गया है");
+    pendingRoleHint = null;
+  }
   const { data: cls } = await sb.from("classes").select("*").order("sort_order");
   myClasses = cls || [];
   if (!isStaff()) {
@@ -298,7 +326,9 @@ function renderShell() {
   ];
   document.body.classList.remove("auth-mode");
   const barIds = ["home", "study", "tests", "fees"];
-  const navHTML = tabs.filter(t => [...barIds, "more"].includes(t.id)).map(t => `<button data-tab="${t.id}" class="${t.id === "more" ? (barIds.includes(tab) ? "" : "active") : (tab === t.id ? "active" : "")}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
+  const navHTML = !isStaff()
+    ? [["home", "🏠", "होम"], ["study", "📚", "स्टडी"], ["tests", "📝", "टेस्ट"], ["profile", "👤", "प्रोफ़ाइल"]].map(([id, ic, label]) => `<button data-tab="${id}" class="${tab === id ? "active" : ""}"><span class="ic">${ic}</span>${label}</button>`).join("")
+    : tabs.filter(t => [...barIds, "more"].includes(t.id)).map(t => `<button data-tab="${t.id}" class="${t.id === "more" ? (barIds.includes(tab) ? "" : "active") : (tab === t.id ? "active" : "")}"><span class="ic">${t.ic}</span>${t.label}</button>`).join("");
   const extraTabs = [
     { id: "doubts", ic: "❓", label: "Doubts" },
     { id: "tutor", ic: "🤖", label: "AI Tutor" },
@@ -331,7 +361,7 @@ function renderShell() {
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   setPageHead();
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, more: renderMore }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, more: renderMore, profile: renderProfile }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -371,7 +401,7 @@ function wireQA() {
 async function renderHome() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   if (!isStaff()) {
-    const [{ data: enr }, { data: subjects }, { data: chapters }, { data: notes }, { data: mats }, { data: prog }, { data: attempts }, { data: anns }, { data: lives }] = await Promise.all([
+    const [{ data: enr }, { data: subjects }, { data: chapters }, { data: notes }, { data: mats }, { data: prog }, { data: attempts }, { data: anns }, { data: lives }, { data: tt }, { data: att }, { data: pubTests }, { data: assigns }, { data: subs }, { data: feeRecs }] = await Promise.all([
       sb.from("enrollments").select("class_id").eq("user_id", me.id),
       sb.from("subjects").select("*").order("sort_order"),
       sb.from("chapters").select("*").order("sort_order"),
@@ -381,6 +411,12 @@ async function renderHome() {
       sb.from("test_attempts").select("*").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
       sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(4),
       sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
+      sb.from("timetable_entries").select("*"),
+      sb.from("attendance").select("*").eq("student_id", me.id).order("on_date", { ascending: false }).limit(400),
+      sb.from("tests").select("*").eq("status", "published"),
+      sb.from("assignments").select("*"),
+      sb.from("submissions").select("assignment_id,student_id").eq("student_id", me.id),
+      sb.from("fee_records").select("*"),
     ]);
     const enrolledIds = (enr || []).map(e => e.class_id);
     let greetPhoto = null;
@@ -389,81 +425,61 @@ async function renderHome() {
       greetPhoto = sg?.signedUrl || null;
     }
     const myLives = (lives || []).filter(l => enrolledIds.includes(l.class_id)).slice(0, 3);
-    const mySubjs = (subjects || []).filter(s => enrolledIds.includes(s.class_id));
-    const items = [...(notes || []).map(n => ({ ...n, type: "note" })), ...(mats || []).map(m => ({ ...m, type: "material" }))];
-    const doneSet = new Set((prog || []).map(p => p.item_type + ":" + p.item_id));
-    const totalItems = items.length;
-    const doneItems = items.filter(x => doneSet.has(x.type + ":" + x.id)).length;
-    const syllabusPct = totalItems ? Math.round((doneItems / totalItems) * 100) : 0;
-    const testsGiven = (attempts || []).length;
-    const accuracy = testsGiven ? Math.round((attempts || []).reduce((s, a) => s + (+a.percent || 0), 0) / testsGiven) : 0;
-    // मेरा लक्ष्य algorithm: tests से 60% (आधा = कितनी बार test दिया, आधा = औसत score) + पढ़ाई से 40%।
-    // Notes/materials ही न हों तो पूरा % tests से बनता है।
-    const activityPct = Math.min(100, testsGiven * 20);
-    const testPct = Math.round(0.5 * activityPct + 0.5 * accuracy);
-    const goalPct = totalItems ? Math.round(0.6 * testPct + 0.4 * syllabusPct) : testPct;
-    const quotes = ["Discipline today, success tomorrow. Hard work never goes to waste.", "Small steps every day — a big destination one day.", "Today's practice, tomorrow's result."];
-    const quote = quotes[new Date().getDate() % quotes.length];
+    const clsNames = myClasses.map(c => c.name).join(", ");
+    const testById = {}; (pubTests || []).forEach(t => { testById[t.id] = t; });
+    const subById = {}; (subjects || []).forEach(s => { subById[s.id] = s; });
+    const todayWd = new Date().getDay();
+    const todayTT = (tt || []).filter(e => enrolledIds.includes(e.class_id) && e.weekday === todayWd)
+      .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
+    const attTotal = (att || []).length;
+    const attPresent = (att || []).filter(r => r.status === "present").length;
+    const attPct = attTotal ? Math.round((attPresent / attTotal) * 100) : null;
+    const attemptedIds = new Set((attempts || []).map(a => a.test_id));
+    const upcoming = (pubTests || []).filter(t => enrolledIds.includes(t.class_id) && !attemptedIds.has(t.id))
+      .sort((a, b) => (a.starts_at ? new Date(a.starts_at).getTime() : Infinity) - (b.starts_at ? new Date(b.starts_at).getTime() : Infinity));
+    const nextTest = upcoming[0] || null;
+    const feeDue = (feeRecs || []).reduce((s, r) => s + Math.max(0, +r.amount - +r.paid_amount), 0);
+    const mySubIds = new Set((subs || []).map(s => s.assignment_id));
+    const hwPending = (assigns || []).filter(a => enrolledIds.includes(a.class_id) && !mySubIds.has(a.id)).length;
+    const recent = (attempts || []).slice(0, 3);
+    const pillFor = (p) => p >= 75 ? `<span class="pill green">बहुत अच्छा</span>` : p >= 50 ? `<span class="pill green">अच्छा</span>` : p >= 33 ? `<span class="pill gold">ठीक है</span>` : `<span class="pill red">अभ्यास करें</span>`;
 
     $app.innerHTML = `
-      ${greetHTML("Keep going! Your hard work will pay off ✨", greetPhoto)}
-      <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="Search notes, videos, PDFs…"><button class="small gold" id="homeGo">Search</button></div>
-      <div class="goal">
-        <h2>My Goal 🎯</h2>
-        <div class="sub">Read • Practise • Succeed</div>
-        <div class="prog"><div style="width:${goalPct}%"></div></div>
-        <div class="pct">${goalPct}% goal complete 🎯</div>
-        <div class="pct" style="font-weight:600; opacity:.85">📝 Tests: ${testsGiven} given • Average score ${accuracy}% &nbsp;•&nbsp; 📚 Notes: ${totalItems ? `${doneItems}/${totalItems} read` : "None yet"}</div>
-        <div class="pct" style="font-weight:600; opacity:.85">${testsGiven ? "Give more tests and improve your score — the % will rise 📈" : "Start with your first test — the % will start rising 📈"}</div>
-        <span class="quote">“${quote}”</span>
-        <svg class="mount" viewBox="0 0 200 90" aria-hidden="true"><circle cx="168" cy="16" r="10" fill="#ffd23e"/><path d="M0 90 L55 34 L86 62 L118 18 L150 52 L200 90 Z" fill="#17457f" opacity=".28"/><path d="M62 90 L118 18 L172 90 Z" fill="#0e2f5e" opacity=".5"/><path d="M118 18 L128 30 L118 36 L107 29 Z" fill="#fff"/><rect x="117" y="2" width="2.4" height="17" fill="#8a6400"/><path d="M119.5 2 L133 6 L119.5 10 Z" fill="#d64541"/></svg>
-        <div style="margin-top:12px"><button class="small" data-go="study">Continue learning →</button></div>
+      <div class="dash-head" id="dashHead" role="button">
+        <div class="avatar">${greetPhoto ? `<img src="${greetPhoto}" alt="">` : esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
+        <div style="flex:1; min-width:0">
+          <div class="dh-name">${esc(profile.full_name)}</div>
+          <div class="dh-sub">${clsNames ? esc(clsNames) : "Target Academy"} • छात्र</div>
+        </div>
+        <span class="dh-chev">›</span>
       </div>
-      ${qaHTML([
-        { go: "live", ic: "📺", label: "Live Class", bg: "#fde8e8" },
-        { go: "tests", ic: "📝", label: "Take a Test", bg: "#e2f4ec" },
-        { go: "tutor", ic: "🤖", label: "AI Doubt", bg: "#efe7fd" },
-        { go: "study", ic: "📚", label: "Read Notes", bg: "#fdf3d7" },
-      ])}
-      ${myLives.length ? `<div class="card"><h3>📺 Upcoming Live Classes</h3>
+      <div class="motto"><span class="mo-ic">🔔</span><span>मेहनत आज की पहचान है, कल यही सफलता बनेगी।</span></div>
+      <div class="stile-grid">
+        <div class="stile" data-go="timetable"><span class="si2" style="background:#e8f1fe">📅</span><div class="sl">आज की क्लास</div><div class="sv">${todayTT.length ? todayTT.length + " क्लास" : "कोई नहीं"}</div><div class="ssub">${todayTT.length ? esc(subById[todayTT[0].subject_id]?.name || "क्लास") + " • " + String(todayTT[0].starts_at || "").slice(0, 5) : "आज कोई क्लास नहीं है"}</div></div>
+        <div class="stile" data-go="tests"><span class="si2" style="background:#e2f4ec">📝</span><div class="sl">अगली परीक्षा</div><div class="sv">${nextTest ? (nextTest.starts_at ? new Date(nextTest.starts_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" }) : "तैयार है") : "—"}</div><div class="ssub">${nextTest ? esc(nextTest.title) : "कोई आगामी टेस्ट नहीं"}</div></div>
+        <div class="stile" data-go="attendance"><span class="si2" style="background:#e6f7f0">✅</span><div class="sl">उपस्थिति</div><div class="sv">${attPct === null ? "—" : attPct + "%"}</div><div class="ssub">${attTotal ? attPresent + "/" + attTotal + " दिन उपस्थित" : "अभी रिकॉर्ड नहीं"}</div></div>
+        <div class="stile" data-go="fees"><span class="si2" style="background:#fdf3d7">₹</span><div class="sl">फ़ीस स्थिति</div><div class="sv">${feeDue > 0 ? "₹" + feeDue.toLocaleString("en-IN") : "₹0"}</div><div class="ssub" style="color:${feeDue > 0 ? "var(--bad)" : "var(--ok)"}; font-weight:800">${feeDue > 0 ? "बकाया है" : "कोई बकाया नहीं 🎉"}</div></div>
+      </div>
+      <div class="card"><h3>हाल के परिणाम</h3>
+        ${recent.length ? recent.map(a => { const t = testById[a.test_id]; return `<div class="frow"><div class="fic" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">${a.passed ? "🏆" : "📝"}</div>
+          <div style="flex:1; min-width:0"><div class="ft">${esc(t?.title || "टेस्ट")}</div><div class="fs">${t?.subject_id && subById[t.subject_id] ? esc(subById[t.subject_id].name) + " • " : ""}${new Date(a.submitted_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}</div></div>
+          <div style="text-align:right; flex:0 0 auto"><div style="font-weight:900; color:var(--navy)">${a.score}/${a.max_score}</div>${pillFor(+a.percent || 0)}</div></div>`; }).join("") : `<p class="muted" style="margin:0">अभी कोई टेस्ट नहीं दिया है — पहला टेस्ट देकर शुरुआत करें।</p>`}
+        <button data-go="tests" style="width:100%; margin-top:12px">सभी देखें ›</button>
+      </div>
+      ${myLives.length ? `<div class="card"><h3>📺 आने वाली Live Classes</h3>
         ${myLives.map(l => { const isLive = new Date(l.starts_at).getTime() <= Date.now(); return `<div class="frow"><div class="fic" style="background:#fdecea">📺</div>
           <div style="flex:1"><div class="ft">${esc(l.title)}</div><div class="fs">${esc((myClasses.find(c => c.id === l.class_id) || {}).name || "")} • 🕐 ${new Date(l.starts_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</div></div>
-          ${isLive ? `<button class="gold small" data-join="${esc(l.meet_link)}">▶ Join</button>` : `<span class="pill gold">Coming soon</span>`}</div>`; }).join("")}
+          ${isLive ? `<button class="gold small" data-join="${esc(l.meet_link)}">▶ Join</button>` : `<span class="pill gold">जल्द आ रही है</span>`}</div>`; }).join("")}
       </div>` : ""}
-      <div class="card"><h3>📊 My Progress</h3>
-        <div class="stats">
-          <div class="stat"><div class="si" style="background:#e8f1fe">📝</div><div class="n">${testsGiven}</div><div class="l">Tests Given</div></div>
-          <div class="stat"><div class="si" style="background:#e2f4ec">🎯</div><div class="n">${accuracy}%</div><div class="l">Average Score</div></div>
-          <div class="stat"><div class="si" style="background:#efe7fd">🎓</div><div class="n">${enrolledIds.length}</div><div class="l">My Classes</div></div>
-        </div></div>
-      <div class="card"><h3>📖 Continue Learning</h3>
-        ${mySubjs.length ? `<div class="subj-grid">${mySubjs.map(s => {
-          const st = subjStyle(s.name);
-          const sItems = items.filter(x => x.subject_id === s.id);
-          const sDone = sItems.filter(x => doneSet.has(x.type + ":" + x.id)).length;
-          const p = sItems.length ? Math.round((sDone / sItems.length) * 100) : 0;
-          return `<div class="subj" data-entersubj="${s.class_id}" style="cursor:pointer"><div class="sic" style="background:${st.c}">${st.i}</div>
-            <div style="flex:1"><div class="st">${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</div>
-            <div class="ss">${(chapters || []).filter(c => c.subject_id === s.id).length} Chapters</div>
-            <div class="bar"><div style="width:${p}%; background:${st.c}"></div></div></div>
-            <div class="sp">${p}%</div><div class="playb">▶</div></div>`;
-        }).join("")}</div>` : `<p>You are not enrolled in any class yet. Contact the Academy — your name will be added to your class.</p>`}
-      </div>
-      <div class="card"><h3>🕘 Recent Activity</h3>
-        ${(attempts || []).slice(0, 3).map(a => `<div class="act"><div class="ai" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">${a.passed ? "🏆" : "📝"}</div>
-          <div><div class="at">Test completed — Score ${a.score}/${a.max_score} (${a.percent}%)</div>
-          <div class="as">${new Date(a.submitted_at).toLocaleString("en-IN")}</div></div></div>`).join("")}
-        ${(anns || []).map(a => `<div class="act"><div class="ai" style="background:#fdf3d7">📢</div>
-          <div><div class="at">${esc(a.title)}</div><div class="as">${esc(a.body || "")}</div></div></div>`).join("")}
-        ${!(attempts || []).length && !(anns || []).length ? `<p>No activity yet.</p>` : ""}
+      <div class="card"><h3>अपडेट</h3>
+        <div class="hubrow" data-nav="homework"><span class="hic" style="background:#e2f4ec">📒</span><span class="hub-tx"><span class="hub-t">होमवर्क</span><span class="hub-d">${hwPending ? hwPending + " होमवर्क करना बाकी है" : "सारा होमवर्क पूरा है 🎉"}</span></span>${hwPending ? `<span class="pill gold">${hwPending} बाकी</span>` : ""}<span class="arr">›</span></div>
+        ${(anns || []).slice(0, 2).map(a => `<div class="hubrow" data-nav="notif"><span class="hic" style="background:#fdf3d7">📢</span><span class="hub-tx"><span class="hub-t">${esc(a.title)}</span><span class="hub-d">${new Date(a.created_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}${a.body ? " • " + esc(a.body) : ""}</span></span><span class="arr">›</span></div>`).join("")}
+        ${!hwPending && !(anns || []).length ? `<p class="muted" style="margin:4px 0 0">कोई नया अपडेट नहीं है।</p>` : ""}
       </div>`;
     wireQA();
-    const hq = document.getElementById("homeQ");
-    const goSearch = () => { studyQuery = (hq?.value || "").trim(); studyLesson = null; tab = "study"; renderShell(); };
-    document.getElementById("homeGo")?.addEventListener("click", goSearch);
-    hq?.addEventListener("keydown", (e) => { if (e.key === "Enter") goSearch(); });
+    document.getElementById("dashHead").onclick = () => { tab = "profile"; renderShell(); };
+    $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
     $app.querySelectorAll("[data-join]").forEach(b => b.onclick = () => window.open(b.dataset.join, "_blank"));
-    $app.querySelectorAll("[data-entersubj]").forEach(el => el.onclick = () => { studyClassId = +el.dataset.entersubj; tab = "study"; renderShell(); });
     return;
   }
 
@@ -1025,6 +1041,9 @@ let studyClassId = null;
 let matFilter = "all";
 let studyQuery = "";
 let studyLesson = null;
+let studyTab = "notes";
+let studySubjId = null;
+let studyChapId = null;
 const KIND_ICON = { pdf: "📕", worksheet: "📝", practice: "✍️", summary: "📋", revision: "🔁", question_bank: "❓", sample_paper: "📄", pyq: "🗂️", image: "🖼️", video_link: "🎬", doc: "📘" };
 
 async function openStoredFile(bucket, path) {
@@ -1102,6 +1121,102 @@ async function renderStudy() {
       return;
     }
   }
+  // ---- Student Study (Phase 1 redesign — design photo 4) ----
+  if (!isStaff()) {
+    const inSubj = (x) => !studySubjId || x.subject_id === studySubjId;
+    const inChap = (x) => !studyChapId || x.chapter_id === studyChapId;
+    const fNotes = myNotes.filter(inSubj).filter(inChap);
+    const fMats = myMats.filter(inSubj).filter(inChap);
+    const tabList = studyTab === "notes" ? fNotes.map(x => ({ ...x, _t: "note" }))
+      : studyTab === "pdf" ? [...fNotes.filter(n => n.file_path).map(x => ({ ...x, _t: "note" })), ...fMats.filter(m => m.file_path).map(x => ({ ...x, _t: "material" }))]
+      : fMats.filter(m => m.kind === "worksheet").map(x => ({ ...x, _t: "material" }));
+    const kindMeta = (x) => {
+      if (x._t === "note") return x.file_path ? ["📕", "#fdecea", "PDF"] : ["📗", "#e2f4ec", "नोट्स"];
+      return ({ pdf: ["📕", "#fdecea", "PDF"], doc: ["📘", "#e8f1fe", "दस्तावेज़"], worksheet: ["📝", "#efe7fd", "वर्कशीट"], video_link: ["🎬", "#fdecea", "Video"], image: ["🖼️", "#e8f1fe", "तस्वीर"], practice: ["✍️", "#fdf3d7", "अभ्यास"], summary: ["📋", "#e2f4ec", "सारांश"], revision: ["🔁", "#e2f4ec", "रिवीज़न"], question_bank: ["❓", "#fdf3d7", "प्रश्न बैंक"], sample_paper: ["📄", "#e8f1fe", "सैंपल पेपर"], pyq: ["🗂️", "#efe7fd", "PYQ"] })[x.kind] || ["📄", "#eef2fa", "मटेरियल"];
+    };
+    const rowHTML = (x, inRecent = false) => {
+      const [ic, bg, kl] = kindMeta(x);
+      const dt = x.created_at ? new Date(x.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit", year: "numeric" }).replace(/\//g, "-") : "";
+      return `<div class="sitem">
+        <div class="sicon" style="background:${bg}">${ic}</div>
+        <div class="stx" data-openrow="${x._t}:${x.id}">
+          <div class="st-t">${esc(x.title)}</div>
+          <div class="st-s">${kl}${dt ? " • " + dt : ""}${x.chapter_id ? " • अध्याय: " + esc(chapName(x.chapter_id)) : ""}${x.subject_id ? " • " + esc(subName(x.subject_id)) : ""}</div>
+          ${x._t === "note" && x.body && !inRecent ? `<div class="note-body hidden" id="sbody-${x.id}"></div>` : ""}
+        </div>
+        <div class="sacts">
+          <button class="sact" data-bm="${x._t}:${x.id}" title="Bookmark">${isBm(x._t, x.id) ? "★" : "☆"}</button>
+          ${x.file_path ? `<button class="sact" data-open="${x._t}:${x.id}" title="खोलें / डाउनलोड">⬇</button>` : ""}
+          ${!isDone(x._t, x.id) ? `<button class="sact" data-done="${x._t}:${x.id}" title="पढ़ लिया">✓</button>` : `<span class="sact isdone" title="पढ़ लिया">✓</span>`}
+        </div>
+      </div>`;
+    };
+    const recentProg = (prog || []).filter(p => p.last_opened_at).sort((a, b) => new Date(b.last_opened_at) - new Date(a.last_opened_at)).slice(0, 3);
+    const recentItems = recentProg.map(p => { const src = p.item_type === "note" ? (notes || []).find(n => n.id === p.item_id) : (materials || []).find(m => m.id === p.item_id); return src ? { ...src, _t: p.item_type } : null; }).filter(Boolean);
+    const subjOpts = (subjects || []).filter(s => !studyClassId || s.class_id === studyClassId);
+    const chapOpts = (chapters || []).filter(c => !studySubjId || c.subject_id === studySubjId);
+    $app.innerHTML = `
+      <div class="searchbar"><span>🔍</span><input id="studyQ" placeholder="नोट्स, PDF, विषय खोजें…" value="${esc(studyQuery)}"><button class="small gold" id="studyGo">खोजें</button></div>
+      <div class="seg-tabs">
+        ${[["notes", "नोट्स"], ["pdf", "PDF"], ["worksheet", "वर्कशीट"]].map(([k, l]) => `<button class="${studyTab === k ? "on" : ""}" data-stab="${k}">${l}</button>`).join("")}
+      </div>
+      <div class="filter-row">
+        <select id="fCls" aria-label="कक्षा"><option value="">कक्षा: सभी</option>${myClasses.map(c => `<option value="${c.id}" ${c.id === studyClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+        <select id="fSubj" aria-label="विषय"><option value="">विषय: सभी</option>${subjOpts.map(s => `<option value="${s.id}" ${s.id === studySubjId ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>
+        <select id="fChap" aria-label="अध्याय"><option value="">अध्याय: सभी</option>${chapOpts.map(c => `<option value="${c.id}" ${c.id === studyChapId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+      </div>
+      ${recentItems.length && !qLow ? `<div class="card"><h3>🕘 हाल में देखे गए</h3>${recentItems.map(x => rowHTML(x, true)).join("")}</div>` : ""}
+      <div class="card"><h3>${studyTab === "notes" ? "📗 नोट्स" : studyTab === "pdf" ? "📕 PDF फ़ाइलें" : "📝 वर्कशीट"} (${tabList.length})</h3>
+        ${tabList.map(x => rowHTML(x)).join("") || `<p class="muted" style="margin:0">${studyTab === "worksheet" ? "अभी कोई वर्कशीट नहीं है — जल्द आएगी।" : "इस श्रेणी में अभी कुछ नहीं है — जल्द आएगा।"}</p>`}
+      </div>
+      <div class="card"><h3>📊 विषयों में मेरी प्रगति</h3>
+        ${subjOpts.map(s => {
+          const si = [...(notes || []).filter(n => n.subject_id === s.id).map(n => ({ ...n, type: "note" })), ...(materials || []).filter(m => m.subject_id === s.id).map(m => ({ ...m, type: "material" }))];
+          if (!si.length) return "";
+          const sd = si.filter(x => isDone(x.type, x.id)).length;
+          const p = Math.round((sd / si.length) * 100);
+          const st = subjStyle(s.name);
+          return `<div class="subj" style="margin-bottom:8px"><div class="sic" style="background:${st.c}">${st.i}</div><div style="flex:1"><div class="st">${esc(s.name)}</div><div class="ss">${sd}/${si.length} पढ़ा</div><div class="bar"><div style="width:${p}%; background:${st.c}"></div></div></div><div class="sp">${p}%</div></div>`;
+        }).join("") || `<p class="muted" style="margin:0">अभी कोई विषय नहीं है।</p>`}
+      </div>`;
+    document.getElementById("fCls").onchange = (e) => { studyClassId = e.target.value ? +e.target.value : null; studySubjId = null; studyChapId = null; renderStudy(); };
+    document.getElementById("fSubj").onchange = (e) => { studySubjId = e.target.value ? +e.target.value : null; studyChapId = null; renderStudy(); };
+    document.getElementById("fChap").onchange = (e) => { studyChapId = e.target.value ? +e.target.value : null; renderStudy(); };
+    $app.querySelectorAll("[data-stab]").forEach(b => b.onclick = () => { studyTab = b.dataset.stab; renderStudy(); });
+    const sq2 = document.getElementById("studyQ");
+    const applyQ2 = () => { studyQuery = (sq2?.value || "").trim(); renderStudy(); };
+    document.getElementById("studyGo")?.addEventListener("click", applyQ2);
+    sq2?.addEventListener("keydown", (e) => { if (e.key === "Enter") applyQ2(); });
+    $app.querySelectorAll("[data-openrow]").forEach(el => el.onclick = () => {
+      const [type, id] = el.dataset.openrow.split(":");
+      const src = type === "note" ? (notes || []).find(n => n.id === +id) : (materials || []).find(m => m.id === +id);
+      if (!src) return;
+      if (type === "material" && (src.kind === "video_link" || ytIdOf(src.external_url))) { studyLesson = src.id; renderStudy(); return; }
+      if (src.body) { const b = document.getElementById("sbody-" + id); if (b) { const show = b.classList.contains("hidden"); b.classList.toggle("hidden", !show); b.textContent = show ? src.body : ""; } return; }
+      if (src.file_path) { openStoredFile(type === "note" ? "notes-files" : "materials", src.file_path); return; }
+      if (src.external_url) window.open(src.external_url, "_blank");
+    });
+    $app.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
+      const [type, id] = b.dataset.open.split(":");
+      const src = type === "note" ? (notes || []).find(n => n.id === +id) : (materials || []).find(m => m.id === +id);
+      if (src?.file_path) openStoredFile(type === "note" ? "notes-files" : "materials", src.file_path);
+    });
+    $app.querySelectorAll("[data-bm]").forEach(b => b.onclick = async () => {
+      const [type, id] = b.dataset.bm.split(":");
+      if (isBm(type, +id)) await sb.from("bookmarks").delete().eq("user_id", me.id).eq("item_type", type).eq("item_id", +id);
+      else await sb.from("bookmarks").insert({ user_id: me.id, item_type: type, item_id: +id });
+      renderStudy();
+    });
+    $app.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
+      const [type, id] = b.dataset.done.split(":");
+      await sb.from("content_progress").upsert(
+        { user_id: me.id, item_type: type, item_id: +id, completed: true, last_opened_at: new Date().toISOString() },
+        { onConflict: "user_id,item_type,item_id" });
+      renderStudy();
+    });
+    return;
+  }
+
   const dispMats = matFilter === "pdfs" ? myMats.filter(m => m.file_path)
     : matFilter === "videos" ? myMats.filter(m => m.external_url || m.kind === "video_link")
     : myMats;
@@ -1877,6 +1992,79 @@ async function renderMore() {
     </div>
     <button class="danger" style="width:100%" onclick="document.getElementById('logoutBtn').click()">🚪 Logout</button>`;
   $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
+}
+
+/* ---------------- Student Profile (Phase 1 — design photo 10) ---------------- */
+async function renderProfile() {
+  if (isStaff()) { renderMore(); return; }
+  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  let myPhoto = null;
+  if (profile.photo_path) {
+    const { data } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
+    myPhoto = data?.signedUrl || null;
+  }
+  const classNames = myClasses.map(c => c.name).join(", ");
+  const pushOn = pushSupported() && Notification.permission === "granted";
+  const row = (nav, ic, bg, t, d) => `<div class="hubrow" data-nav="${nav}"><span class="hic" style="background:${bg}">${ic}</span><span class="hub-tx"><span class="hub-t">${t}</span>${d ? `<span class="hub-d">${d}</span>` : ""}</span><span class="arr">›</span></div>`;
+  $app.innerHTML = `
+    <div class="prof-head"><h3 class="prof-title">प्रोफ़ाइल</h3><button class="light small prof-gear" id="profGear" aria-label="सेटिंग / सूचना">⚙️</button></div>
+    <div class="card" style="text-align:center">
+      ${myPhoto
+        ? `<img src="${myPhoto}" alt="" class="zoomable" data-zoom="${myPhoto}" style="width:76px; height:76px; border-radius:50%; object-fit:cover; margin:4px auto 10px; display:block; border:3px solid var(--gold)">`
+        : `<div class="avatar" style="width:76px; height:76px; font-size:30px; margin:4px auto 10px">${esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>`}
+      <div style="font-size:19px; font-weight:900; color:var(--navy)">${esc(profile.full_name)}</div>
+      <div class="muted">${classNames ? esc(classNames) + " • " : ""}${esc(roleName(profile.role))}</div>
+      <div class="muted">${esc(me.email || "")}</div>
+    </div>
+    <div class="card"><h3>📋 मेरी जानकारी</h3>
+      <div class="menu-item"><span class="mi">👤</span>नाम<span class="arr">${esc(profile.full_name)}</span></div>
+      <div class="menu-item"><span class="mi">✉️</span>ईमेल<span class="arr">${esc(me.email || "—")}</span></div>
+      ${profile.phone ? `<div class="menu-item"><span class="mi">📱</span>फ़ोन<span class="arr">${esc(profile.phone)}</span></div>` : ""}
+      <div class="menu-item"><span class="mi">🎓</span>कक्षाएँ<span class="arr">${esc(classNames || "—")}</span></div>
+      ${profile.created_at ? `<div class="menu-item"><span class="mi">📅</span>खाता बना<span class="arr">${new Date(profile.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span></div>` : ""}
+      <div class="menu-item"><span class="mi">🏫</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
+      <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
+    </div>
+    <div class="card"><h3>🔗 जल्दी पहुँच</h3>
+      ${row("fees", "💰", "#fff4cf", "फ़ीस विवरण", "फ़ीस की स्थिति और रिकॉर्ड")}
+      ${row("attendance", "✅", "#e2f4ec", "उपस्थिति रिपोर्ट", "मेरी हाज़िरी का हाल")}
+      ${row("tests", "📝", "#e8f1fe", "परिणाम", "दिए गए टेस्ट और नंबर")}
+      ${row("homework", "📒", "#e2f4ec", "होमवर्क", "शिक्षकों के असाइनमेंट")}
+      ${row("doubts", "❓", "#fdecea", "मेरे Doubts", "सवाल पूछें, जवाब पाएँ")}
+      ${row("tutor", "🤖", "#efe7fd", "AI Tutor", "कदम-दर-कदम सीखें")}
+      ${row("live", "📺", "#fdecea", "Live Class", "आने वाली लाइव कक्षाएँ")}
+      ${row("timetable", "🗓️", "#e8f1fe", "Timetable", "क्लास का समय")}
+      ${row("notif", "🔔", "#fff4cf", "नोटिफ़िकेशन", "सभी ताज़ा अपडेट")}
+    </div>
+    <div class="card"><h3>📲 फ़ोन सूचना</h3>
+      ${pushSupported()
+        ? (pushOn
+          ? `<p style="margin:0">✅ इस फ़ोन पर सूचनाएँ चालू हैं।</p>`
+          : `<p class="muted" style="margin-top:0">नई सूचना, टेस्ट और जवाब सीधे फ़ोन पर पाएँ — ऐप बंद होने पर भी।</p><button class="gold" id="profPush" style="width:100%">📲 फ़ोन सूचना चालू करें</button>`)
+        : `<p class="muted" style="margin:0">यह ब्राउज़र फ़ोन सूचना नहीं देता — ऐप को Chrome में खोलें।</p>`}
+    </div>
+    <div class="card"><h3>🔑 पासवर्ड बदलें</h3>
+      <label>नया पासवर्ड</label><input type="password" id="np1" autocomplete="new-password" placeholder="कम से कम 6 अक्षर">
+      <label>नया पासवर्ड फिर से</label><input type="password" id="np2" autocomplete="new-password" placeholder="दोबारा लिखें">
+      <div class="error" id="npErr"></div>
+      <button class="gold" id="npGo" style="width:100%">पासवर्ड बदलें</button>
+    </div>
+    <button class="danger" id="profLogout" style="width:100%">🚪 लॉग आउट</button>`;
+  document.getElementById("profGear").onclick = () => { tab = "notif"; renderShell(); };
+  $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
+  const pp = document.getElementById("profPush");
+  if (pp) pp.onclick = async () => { await enablePush(); renderProfile(); };
+  document.getElementById("npGo").onclick = async () => {
+    const err = document.getElementById("npErr"); err.textContent = "";
+    const p1 = document.getElementById("np1").value, p2 = document.getElementById("np2").value;
+    if (p1.length < 6) { err.textContent = "पासवर्ड कम से कम 6 अक्षरों का रखें"; return; }
+    if (p1 !== p2) { err.textContent = "दोनों पासवर्ड एक जैसे नहीं हैं"; return; }
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if (error) { err.textContent = error.message; return; }
+    toast("🔑 पासवर्ड बदल गया है");
+    document.getElementById("np1").value = ""; document.getElementById("np2").value = "";
+  };
+  document.getElementById("profLogout").onclick = () => document.getElementById("logoutBtn").click();
 }
 
 /* ---------------- Start ---------------- */
