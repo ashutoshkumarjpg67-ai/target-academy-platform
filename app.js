@@ -24,7 +24,6 @@ window.addEventListener("popstate", (e) => {
     } else { try { history.pushState({ view: "run" }, ""); } catch (err) {} }
     return;
   }
-  if (curView === "practice") { tab = practiceReturn || "home"; navFromPop = true; renderShell(); return; }
   if (curView === "result" || curView === "preview") { tab = "tests"; navFromPop = true; renderShell(); return; }
   tab = (e.state && e.state.tab) || "home"; navFromPop = true; renderShell();
 });
@@ -369,180 +368,6 @@ function wireQA() {
   $app.querySelectorAll("[data-go]").forEach(el => el.onclick = () => { tab = el.dataset.go; renderShell(); });
 }
 
-/* ================= v40: Smart Home + Test Analysis Pro + Wrong Question Bank
-   + Targeted Practice + Goal Planner (frontend-only, additive.
-   No DB changes: goal + wrong bank live in localStorage on the student's
-   own device; everything else reuses existing tables/RPCs.) ================= */
-let practiceReturn = "home";
-const lsGet40 = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (_) { return d; } };
-const lsSet40 = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} };
-const goalKey40 = () => "ta40_goal_" + (me ? me.id : "x");
-const wrongKey40 = () => "ta40_wrong_" + (me ? me.id : "x");
-const getGoal40 = () => lsGet40(goalKey40(), null);
-const getWrongBank = () => { const a = lsGet40(wrongKey40(), []); return Array.isArray(a) ? a : []; };
-const setWrongBank = (a) => lsSet40(wrongKey40(), (a || []).slice(0, 200));
-const asArr40 = (v) => Array.isArray(v) ? v : (v === null || v === undefined ? [] : [v]);
-function wrongSnap40(r, test) {
-  return {
-    qid: r.question_id ?? r.qid, testId: test ? test.id : (r.testId ?? null),
-    testTitle: test ? test.title : (r.testTitle || "Test"),
-    subjectId: test ? (test.subject_id ?? null) : (r.subjectId ?? null),
-    chapterId: test ? (test.chapter_id ?? null) : (r.chapterId ?? null),
-    qtype: r.qtype || "mcq_single", question_text: r.question_text || "",
-    options: Array.isArray(r.options) ? r.options : [],
-    correct_answer: asArr40(r.correct_answer), my_answer: asArr40(r.my_answer),
-    explanation: r.explanation || "", ts: Date.now(),
-  };
-}
-function bankAddWrong(snaps) {
-  if (!snaps || !snaps.length) return;
-  const bank = getWrongBank();
-  const seen = new Set(bank.map(x => x.testId + ":" + x.qid));
-  let changed = false;
-  for (const s of snaps) {
-    const k = s.testId + ":" + s.qid;
-    if (!seen.has(k)) { bank.unshift(s); seen.add(k); changed = true; }
-  }
-  if (changed) setWrongBank(bank);
-}
-function syncWrongFromReview(rows, test) {
-  bankAddWrong((rows || []).filter(r => r.is_correct === false).map(r => wrongSnap40(r, test)));
-}
-/* Average % per chapter / subject, from submitted attempts + their tests. */
-function weakAreas40(attempts, tests) {
-  const tById = {}; (tests || []).forEach(t => tById[t.id] = t);
-  const byCh = {}, bySu = {};
-  for (const a of (attempts || [])) {
-    const t = tById[a.test_id];
-    if (!t || a.percent === null || a.percent === undefined) continue;
-    if (t.chapter_id) (byCh[t.chapter_id] ||= []).push(+a.percent);
-    if (t.subject_id) (bySu[t.subject_id] ||= []).push(+a.percent);
-  }
-  const agg = (m) => Object.entries(m).map(([id, arr]) => ({ id: +id, avg: Math.round(arr.reduce((s, x) => s + x, 0) / arr.length), n: arr.length })).sort((x, y) => x.avg - y.avg);
-  return { chapters: agg(byCh), subjects: agg(bySu) };
-}
-function openSubView40(name, ret) {
-  practiceReturn = ret || tab || "home";
-  curView = name; hidePageHead();
-  try { history.pushState({ view: name }, ""); } catch (e) {}
-  $tabbar.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === practiceReturn));
-}
-function barRow40(label, pct, color) {
-  const c = color || (pct >= 75 ? "var(--ok)" : pct >= 50 ? "#e8a100" : "var(--bad)");
-  return `<div class="ana-row"><span class="ana-l">${esc(label)}</span><div class="bar ana-bar"><div style="width:${Math.max(0, Math.min(100, pct))}%; background:${c}"></div></div><span class="ana-p">${pct}%</span></div>`;
-}
-
-/* ----- Wrong Question Bank + re-practice (this device) ----- */
-let wbPicks = {};
-function renderWrongBank(ret) {
-  openSubView40("practice", ret);
-  wbPicks = {};
-  drawWrongBank();
-  window.scrollTo({ top: 0 });
-}
-function drawWrongBank() {
-  const bank = getWrongBank();
-  const optQ = (w) => (w.qtype === "mcq_single" || w.qtype === "mcq_multi" || w.qtype === "true_false") && (w.options || []).length;
-  $app.innerHTML = `
-    <div class="card">
-      <button class="light small" id="wbBack">← Back</button>
-      <h3 style="margin-top:10px">❌ Wrong Question Bank</h3>
-      <p class="muted">Questions you answered wrong in tests and Practice Mode are collected here automatically, so you can practise exactly those again. ${bank.length ? `<b>${bank.length} question${bank.length > 1 ? "s" : ""}</b> saved.` : ""}</p>
-      <p class="muted">Saved on this device only — attempt a test and open its result, and its wrong questions will appear here.</p>
-      ${bank.length ? `<button class="danger small" id="wbClear">Clear all</button>` : ""}
-    </div>
-    ${bank.length ? bank.map((w, i) => {
-      const key = w.testId + ":" + w.qid;
-      const pick = wbPicks[key];
-      const right = w.correct_answer.length ? String(w.correct_answer[0]) : null;
-      const mine = w.my_answer.length ? String(w.my_answer[0]) : null;
-      return `<div class="card">
-        <div class="s" style="color:var(--muted); font-size:12.5px">${esc(w.testTitle || "Test")}</div>
-        <div class="t" style="margin-top:4px">Q. ${esc(w.question_text)}</div>
-        ${optQ(w) ? (pick === undefined
-          ? w.options.map(o => `<button class="option" data-wb="${i}:${esc(o.key)}"><span class="k">${esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : o.key)}</span>${esc(o.text)}</button>`).join("")
-          : w.options.map(o => `<button class="option ${String(o.key) === right ? "right" : String(o.key) === String(pick) ? "wrong" : ""}" disabled><span class="k">${esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : o.key)}</span>${esc(o.text)}</button>`).join("")
-            + `<div class="expl-box">${String(pick) === right ? "✅ <b>Correct now!</b> You have fixed this mistake 🎉" : "❌ <b>Not yet</b> — the correct answer is shown in green."}${mine !== null && mine !== right ? `<br>Your test answer was: <b>${esc(mine)}</b>` : ""}${w.explanation ? `<br>💡 <b>Explanation:</b> ${esc(w.explanation)}` : ""}</div>`
-            + (String(pick) === right ? `<button class="gold small" data-wbmaster="${i}" style="margin-top:10px">✓ Mastered — Remove from Bank</button>` : `<button class="light small" data-wbretry="${i}" style="margin-top:10px">🔁 Try Again</button>`))
-        : `<div class="expl-box">✅ <b>Correct answer:</b> ${esc(right ?? "—")}${w.explanation ? `<br>💡 <b>Explanation:</b> ${esc(w.explanation)}` : ""}</div>
-           <button class="light small" data-wbmaster="${i}" style="margin-top:10px">✓ Revised — Remove from Bank</button>`}
-      </div>`;
-    }).join("") : `<div class="card"><p>No wrong questions saved yet. Take a test — any question you get wrong will be collected here for re-practice. 🎯</p></div>`}`;
-  document.getElementById("wbBack").onclick = () => { tab = practiceReturn || "home"; renderShell(); };
-  document.getElementById("wbClear")?.addEventListener("click", () => { if (confirm("Clear the whole Wrong Question Bank on this device?")) { setWrongBank([]); drawWrongBank(); } });
-  $app.querySelectorAll("[data-wb]").forEach(b => b.onclick = () => {
-    const [i, key] = b.dataset.wb.split(/:(.+)/); const w = getWrongBank()[+i]; if (!w) return;
-    wbPicks[w.testId + ":" + w.qid] = key; drawWrongBank();
-  });
-  $app.querySelectorAll("[data-wbretry]").forEach(b => b.onclick = () => {
-    const w = getWrongBank()[+b.dataset.wbretry]; if (!w) return;
-    delete wbPicks[w.testId + ":" + w.qid]; drawWrongBank();
-  });
-  $app.querySelectorAll("[data-wbmaster]").forEach(b => b.onclick = () => {
-    const bank2 = getWrongBank(); bank2.splice(+b.dataset.wbmaster, 1); setWrongBank(bank2);
-    toast("Removed from the Wrong Question Bank ✓"); drawWrongBank();
-  });
-}
-
-/* ----- Targeted Practice: weak chapters -> their tests + wrong questions ----- */
-async function renderTargetPractice(ret) {
-  openSubView40("practice", ret);
-  $app.innerHTML = `<div class="loading">Preparing your practice…</div>`;
-  const [{ data: tests }, { data: myAttempts }, { data: subjects }, { data: chapters }] = await Promise.all([
-    sb.from("tests").select("*").order("created_at", { ascending: false }),
-    sb.from("test_attempts").select("*").eq("student_id", me.id).order("started_at", { ascending: false }),
-    sb.from("subjects").select("*").order("sort_order"),
-    sb.from("chapters").select("*").order("sort_order"),
-  ]);
-  const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
-  const chapName = (id) => (chapters || []).find(c => c.id === id)?.name || "";
-  const submitted = (myAttempts || []).filter(a => a.status !== "in_progress");
-  const weak = weakAreas40(submitted, tests || []);
-  const weakCh = weak.chapters.filter(c => c.avg < 70);
-  const bank = getWrongBank();
-  const attemptsOf = (tid) => (myAttempts || []).filter(a => a.test_id === tid);
-  const testBtn = (t) => {
-    const mine = attemptsOf(t.id);
-    const sub = mine.filter(a => a.status !== "in_progress");
-    const live = mine.find(a => a.status === "in_progress");
-    if (t.status !== "published") return "";
-    if (live) return `<button class="gold small" data-tpstart="${t.id}">▶ Continue Test</button>`;
-    if (!t.max_attempts || sub.length < t.max_attempts) return `<button class="gold small" data-tpstart="${t.id}">${sub.length ? "🔁 Practise Again" : "▶ Start Practice"}</button>`;
-    return `<span class="pill">Attempts used</span>`;
-  };
-  const chapBlock = (c) => {
-    const chTests = (tests || []).filter(t => t.chapter_id === c.id && t.status === "published");
-    const chWrong = bank.filter(w => w.chapterId === c.id).length;
-    return `<div class="card">
-      <h3>🎯 ${esc(chapName(c.id) || "Chapter")}</h3>
-      <p class="muted" style="margin:0 0 6px">${esc(subName((chapters || []).find(x => x.id === c.id)?.subject_id))} • Your average in this chapter: <b>${c.avg}%</b> (${c.n} test${c.n > 1 ? "s" : ""})</p>
-      ${barRow40("Chapter score", c.avg)}
-      ${chWrong ? `<p style="margin:8px 0 0">❌ <b>${chWrong}</b> wrong question${chWrong > 1 ? "s" : ""} from this chapter are in your Wrong Question Bank. <button class="link" data-tpwrong="1">Re-practise them →</button></p>` : ""}
-      ${chTests.length ? chTests.map(t => `<div class="item"><div><div class="t" style="font-size:14.5px">${esc(t.title)}</div><div class="s">⏱ ${t.duration_minutes} min • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}</div></div>${testBtn(t)}</div>`).join("") : `<p class="muted">No published test for this chapter yet — read its notes, then ask your teacher.</p>`}
-    </div>`;
-  };
-  $app.innerHTML = `
-    <div class="card">
-      <button class="light small" id="tpBack">← Back</button>
-      <h3 style="margin-top:10px">🎯 Targeted Practice</h3>
-      <p class="muted">Practice built only from your weak chapters and the Academy's existing tests &amp; questions — nothing new is invented here.</p>
-    </div>
-    ${!submitted.length ? `<div class="card"><p>You have not taken any test yet. Take your first test — after that, this page will show exactly which chapters need practice. 📝</p><button class="gold" id="tpGoTests">Go to Tests →</button></div>`
-      : weakCh.length ? weakCh.map(chapBlock).join("")
-      : `<div class="card"><h3>💪 No Weak Chapter Below 70%</h3><p>Great work! Your chapter averages are all healthy. Keep the streak going:</p>
-          ${(tests || []).filter(t => t.status === "published").slice(0, 4).map(t => `<div class="item"><div><div class="t" style="font-size:14.5px">${esc(t.title)}</div><div class="s">${esc(subName(t.subject_id))}${t.chapter_id ? " • " + esc(chapName(t.chapter_id)) : ""}</div></div>${testBtn(t)}</div>`).join("")}
-        </div>`}
-    ${bank.length ? `<div class="card"><h3>❌ Wrong Question Bank</h3><p class="muted">${bank.length} saved wrong question${bank.length > 1 ? "s" : ""} waiting for re-practice.</p><button class="gold" data-tpwrong="1" style="width:100%">Open Wrong Question Bank →</button></div>` : ""}`;
-  document.getElementById("tpBack").onclick = () => { tab = practiceReturn || "home"; renderShell(); };
-  document.getElementById("tpGoTests")?.addEventListener("click", () => { tab = "tests"; renderShell(); });
-  $app.querySelectorAll("[data-tpwrong]").forEach(b => b.onclick = () => renderWrongBank(practiceReturn));
-  $app.querySelectorAll("[data-tpstart]").forEach(b => b.onclick = () => {
-    const t = (tests || []).find(x => x.id === +b.dataset.tpstart);
-    if (t) startTest(t, attemptsOf(t.id));
-  });
-  window.scrollTo({ top: 0 });
-}
-
 async function renderHome() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   if (!isStaff()) {
@@ -550,8 +375,8 @@ async function renderHome() {
       sb.from("enrollments").select("class_id").eq("user_id", me.id),
       sb.from("subjects").select("*").order("sort_order"),
       sb.from("chapters").select("*").order("sort_order"),
-      sb.from("notes").select("id,class_id,subject_id,chapter_id,title,created_at").eq("status", "published"),
-      sb.from("materials").select("id,class_id,subject_id,chapter_id,title,created_at").eq("status", "published"),
+      sb.from("notes").select("id,class_id,subject_id").eq("status", "published"),
+      sb.from("materials").select("id,class_id,subject_id").eq("status", "published"),
       sb.from("content_progress").select("*").eq("user_id", me.id).eq("completed", true),
       sb.from("test_attempts").select("*").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
       sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(4),
@@ -580,97 +405,6 @@ async function renderHome() {
     const quotes = ["Discipline today, success tomorrow. Hard work never goes to waste.", "Small steps every day — a big destination one day.", "Today's practice, tomorrow's result."];
     const quote = quotes[new Date().getDate() % quotes.length];
 
-    /* ----- v40: Smart Home data (all existing tables, nothing new) ----- */
-    const [{ data: pubTests }, { data: hwList }, { data: mySubRows }, { data: ttList }, { data: progAll }] = await Promise.all([
-      sb.from("tests").select("*").eq("status", "published").order("created_at", { ascending: false }),
-      sb.from("assignments").select("*").eq("status", "published").order("due_at", { ascending: true }),
-      sb.from("submissions").select("assignment_id").eq("student_id", me.id),
-      sb.from("timetable_entries").select("*").order("starts_at"),
-      sb.from("content_progress").select("*").eq("user_id", me.id).order("last_opened_at", { ascending: false }).limit(6),
-    ]);
-    const subName40 = (id) => (subjects || []).find(s => s.id === id)?.name || "";
-    const chapName40 = (id) => (chapters || []).find(c => c.id === id)?.name || "";
-    const itemsAll = [...(notes || []).map(n => ({ ...n, type: "note" })), ...(mats || []).map(m => ({ ...m, type: "material" }))];
-    const byRecent = (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0);
-    let lastItem = null;
-    for (const p of (progAll || [])) { const it = itemsAll.find(x => x.type === p.item_type && x.id === p.item_id); if (it) { lastItem = it; break; } }
-    if (!lastItem) lastItem = [...itemsAll].sort(byRecent)[0] || null;
-    const nextItem = itemsAll.filter(x => !doneSet.has(x.type + ":" + x.id)).sort(byRecent)[0] || null;
-    const contItem = lastItem && doneSet.has(lastItem.type + ":" + lastItem.id) && nextItem ? nextItem : lastItem;
-    const todayWd = new Date().getDay();
-    const todayTT = (ttList || []).filter(e => enrolledIds.includes(e.class_id) && e.weekday === todayWd);
-    const doneHw = new Set((mySubRows || []).map(s => s.assignment_id));
-    const hwDue = (hwList || []).filter(a => enrolledIds.includes(a.class_id) && !doneHw.has(a.id)).slice(0, 4);
-    const givenTestIds = new Set((attempts || []).map(a => a.test_id));
-    const pendingTests = (pubTests || []).filter(t => enrolledIds.includes(t.class_id) && !givenTestIds.has(t.id)).slice(0, 4);
-    const weak40 = weakAreas40(attempts || [], pubTests || []);
-    const weakCh40 = weak40.chapters.filter(c => c.avg < 70).slice(0, 3);
-    const wrongCount40 = getWrongBank().length;
-    const goal40 = getGoal40();
-    const daysLeft40 = goal40?.examDate ? Math.ceil((new Date(goal40.examDate + "T23:59:59") - Date.now()) / 86400000) : null;
-    const suggest40 = [];
-    if (pendingTests.length) suggest40.push({ ic: "📝", t: "Take the test: " + pendingTests[0].title, go: "tests" });
-    if (weakCh40.length) suggest40.push({ ic: "🎯", t: "Practise your weak chapter: " + (chapName40(weakCh40[0].id) || "Chapter"), act: "target" });
-    if (hwDue.length) suggest40.push({ ic: "📒", t: "Finish homework: " + hwDue[0].title, go: "homework" });
-    if (nextItem) suggest40.push({ ic: "📖", t: "Read next: " + (nextItem.title || "Note"), act: "continue" });
-    const lakshyaHTML = `
-      <div class="lakshya">
-        <div class="lk-badge">🎯 Lakshya AI — Smart Doubt</div>
-        <div class="lk-t">Stuck on a question? Ask instantly.</div>
-        <div class="lk-s">Get a step-by-step answer from the AI Tutor, or send your doubt to your teacher — no waiting, no searching.</div>
-        <div class="lk-btns">
-          <button class="gold" data-go="tutor">🤖 Ask AI Tutor</button>
-          <button class="lk-ghost" data-go="doubts">❓ Ask a Doubt</button>
-        </div>
-      </div>`;
-    const todayHTML = `
-      <div class="card"><h3>🗓️ Today's Plan</h3>
-        ${todayTT.length ? `<div class="plan-sec">Today's Classes</div>` + todayTT.map(e => `<div class="frow"><div class="fic" style="background:#e8f1fe">🕐</div>
-          <div style="flex:1"><div class="ft">${esc(subName40(e.subject_id) || "Class")}</div><div class="fs">${esc((myClasses.find(c => c.id === e.class_id) || {}).name || "")} • ${(e.starts_at || "").slice(0, 5)} – ${(e.ends_at || "").slice(0, 5)}</div></div>
-          <button class="light small" data-go="timetable">Timetable</button></div>`).join("") : `<p class="muted" style="margin:2px 0 8px">No classes in today's timetable.</p>`}
-        ${hwDue.length ? `<div class="plan-sec">Homework to Finish (${hwDue.length})</div>` + hwDue.map(a => { const od = a.due_at && new Date(a.due_at) < new Date(); return `<div class="frow"><div class="fic" style="background:#fdf3d7">📒</div>
-          <div style="flex:1"><div class="ft">${esc(a.title)}</div><div class="fs">${esc(subName40(a.subject_id))}${a.due_at ? " • Last date: " + new Date(a.due_at).toLocaleDateString("en-IN") : ""}${od ? " • ⚠️ Overdue" : ""}</div></div>
-          <button class="light small" data-go="homework">Open</button></div>`; }).join("") : ""}
-        ${pendingTests.length ? `<div class="plan-sec">Tests Waiting for You (${pendingTests.length})</div>` + pendingTests.map(t => `<div class="frow"><div class="fic" style="background:#e2f4ec">📝</div>
-          <div style="flex:1"><div class="ft">${esc(t.title)}</div><div class="fs">⏱ ${t.duration_minutes} min • ${t.total_marks} marks</div></div>
-          <button class="gold small" data-go="tests">Start</button></div>`).join("") : ""}
-        ${!todayTT.length && !hwDue.length && !pendingTests.length ? `<p class="muted" style="margin:0">Nothing pending today — a perfect day to revise your notes. 📚</p>` : ""}
-      </div>`;
-    const continueHTML = contItem ? `
-      <div class="card"><h3>▶️ Continue Learning</h3>
-        <div class="frow"><div class="fic" style="background:#efe7fd">${contItem.type === "material" ? "🎬" : "📗"}</div>
-          <div style="flex:1"><div class="ft">${esc(contItem.title || "Study item")}</div><div class="fs">${esc(subName40(contItem.subject_id))}${contItem.chapter_id ? " • " + esc(chapName40(contItem.chapter_id)) : ""} • ${doneSet.has(contItem.type + ":" + contItem.id) ? "Next up for you" : "Last opened by you"}</div></div>
-          <button class="gold small" id="contBtn">Open →</button></div>
-      </div>` : "";
-    const goalFormHTML = `
-          <div class="row" style="margin-top:6px">
-            <div><label>Exam Date</label><input type="date" id="goalDate" value="${goal40?.examDate || ""}"></div>
-            <div><label>Target Marks</label><input type="number" id="goalTarget" placeholder="e.g. 450" value="${goal40?.target || ""}"></div>
-          </div>
-          <button class="gold" id="goalSave" style="width:100%; margin-top:10px">Save My Goal 🎯</button>`;
-    const examGoalHTML = `
-      <div class="card"><h3>🏆 My Exam Goal</h3>
-        ${goal40?.examDate ? `
-          <div class="stats">
-            <div class="stat"><div class="si" style="background:#fdf3d7">⏳</div><div class="n">${daysLeft40 === null ? "—" : daysLeft40 < 0 ? "Done" : daysLeft40}</div><div class="l">${daysLeft40 !== null && daysLeft40 >= 0 ? "Days to Exam" : "Exam Date"}</div></div>
-            <div class="stat"><div class="si" style="background:#e2f4ec">🎯</div><div class="n">${goal40.target ? esc(goal40.target) : "—"}</div><div class="l">Target Marks</div></div>
-            <div class="stat"><div class="si" style="background:#e8f1fe">📅</div><div class="n" style="font-size:16px; padding-top:6px">${new Date(goal40.examDate + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</div><div class="l">Exam Date</div></div>
-          </div>
-          ${suggest40.length ? `<div class="plan-sec" style="margin-top:12px">Today's Suggested Actions</div>` + suggest40.slice(0, 3).map(s => `<div class="frow"><div class="fic">${s.ic}</div><div style="flex:1"><div class="ft" style="font-size:14px">${esc(s.t)}</div></div>${s.act ? `<button class="light small" data-sugg="${s.act}">Do it →</button>` : `<button class="light small" data-go="${s.go}">Open →</button>`}</div>`).join("") : ""}
-          <button class="link" id="goalChange" style="margin-top:8px">Change goal</button>
-          <div id="goalForm" class="hidden">${goalFormHTML}</div>`
-        : `<p class="muted" style="margin-top:0">Set your exam date and target marks — this phone will show your countdown and today's suggested actions here. (Saved only on this device.)</p><div id="goalForm">${goalFormHTML}</div>`}
-      </div>`;
-    const weakHTML = (weakCh40.length || wrongCount40) ? `
-      <div class="card"><h3>📈 Improve Faster</h3>
-        ${weakCh40.map(c => barRow40((chapName40(c.id) || "Chapter") + (subName40((chapters || []).find(x => x.id === c.id)?.subject_id) ? " • " + subName40((chapters || []).find(x => x.id === c.id)?.subject_id) : ""), c.avg)).join("")}
-        ${wrongCount40 ? `<p style="margin:10px 0 0">❌ <b>${wrongCount40}</b> wrong question${wrongCount40 > 1 ? "s" : ""} saved in your Wrong Question Bank.</p>` : ""}
-        <div class="row" style="margin-top:12px">
-          <button class="gold" id="weakPracticeBtn">🎯 Targeted Practice</button>
-          <button class="light" id="weakWrongBtn">❌ Wrong Question Bank</button>
-        </div>
-      </div>` : "";
-
     $app.innerHTML = `
       ${greetHTML("Keep going! Your hard work will pay off ✨", greetPhoto)}
       <div class="searchbar"><span>🔍</span><input id="homeQ" placeholder="Search notes, videos, PDFs…"><button class="small gold" id="homeGo">Search</button></div>
@@ -685,8 +419,6 @@ async function renderHome() {
         <svg class="mount" viewBox="0 0 200 90" aria-hidden="true"><circle cx="168" cy="16" r="10" fill="#ffd23e"/><path d="M0 90 L55 34 L86 62 L118 18 L150 52 L200 90 Z" fill="#17457f" opacity=".28"/><path d="M62 90 L118 18 L172 90 Z" fill="#0e2f5e" opacity=".5"/><path d="M118 18 L128 30 L118 36 L107 29 Z" fill="#fff"/><rect x="117" y="2" width="2.4" height="17" fill="#8a6400"/><path d="M119.5 2 L133 6 L119.5 10 Z" fill="#d64541"/></svg>
         <div style="margin-top:12px"><button class="small" data-go="study">Continue learning →</button></div>
       </div>
-      ${lakshyaHTML}
-      ${todayHTML}
       ${qaHTML([
         { go: "live", ic: "📺", label: "Live Class", bg: "#fde8e8" },
         { go: "tests", ic: "📝", label: "Take a Test", bg: "#e2f4ec" },
@@ -704,9 +436,6 @@ async function renderHome() {
           <div class="stat"><div class="si" style="background:#e2f4ec">🎯</div><div class="n">${accuracy}%</div><div class="l">Average Score</div></div>
           <div class="stat"><div class="si" style="background:#efe7fd">🎓</div><div class="n">${enrolledIds.length}</div><div class="l">My Classes</div></div>
         </div></div>
-      ${continueHTML}
-      ${examGoalHTML}
-      ${weakHTML}
       <div class="card"><h3>📖 Continue Learning</h3>
         ${mySubjs.length ? `<div class="subj-grid">${mySubjs.map(s => {
           const st = subjStyle(s.name);
@@ -735,26 +464,6 @@ async function renderHome() {
     hq?.addEventListener("keydown", (e) => { if (e.key === "Enter") goSearch(); });
     $app.querySelectorAll("[data-join]").forEach(b => b.onclick = () => window.open(b.dataset.join, "_blank"));
     $app.querySelectorAll("[data-entersubj]").forEach(el => el.onclick = () => { studyClassId = +el.dataset.entersubj; tab = "study"; renderShell(); });
-    /* v40 wiring */
-    document.getElementById("contBtn")?.addEventListener("click", () => {
-      if (!contItem) return;
-      studyClassId = contItem.class_id; studyLesson = contItem.type === "material" ? contItem.id : null; studyQuery = "";
-      tab = "study"; renderShell();
-    });
-    document.getElementById("goalChange")?.addEventListener("click", () => document.getElementById("goalForm")?.classList.toggle("hidden"));
-    document.getElementById("goalSave")?.addEventListener("click", () => {
-      const d = document.getElementById("goalDate")?.value || "";
-      const tg = document.getElementById("goalTarget")?.value || "";
-      if (!d) return toast("Choose your exam date first 📅");
-      lsSet40(goalKey40(), { examDate: d, target: tg ? +tg : null });
-      toast("Goal saved 🎯 — all the best!"); renderHome();
-    });
-    document.getElementById("weakPracticeBtn")?.addEventListener("click", () => renderTargetPractice("home"));
-    document.getElementById("weakWrongBtn")?.addEventListener("click", () => renderWrongBank("home"));
-    $app.querySelectorAll("[data-sugg]").forEach(b => b.onclick = () => {
-      if (b.dataset.sugg === "target") renderTargetPractice("home");
-      else if (b.dataset.sugg === "continue") document.getElementById("contBtn")?.click();
-    });
     return;
   }
 
@@ -1575,12 +1284,11 @@ let run = null; // live attempt runtime
 async function renderTests() {
   if (run) { renderRun(); return; }
   $app.innerHTML = `<div class="loading">Loading…</div>`;
-  const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }, { data: chapters }] = await Promise.all([
+  const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }] = await Promise.all([
     sb.from("tests").select("*").order("created_at", { ascending: false }),
     sb.from("test_attempts").select("*").eq("student_id", me.id).order("started_at", { ascending: false }),
     isStaff() ? sb.from("questions").select("*").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
     sb.from("subjects").select("*").order("sort_order"),
-    sb.from("chapters").select("*").order("sort_order"),
   ]);
   const attemptsOf = (tid) => (myAttempts || []).filter(a => a.test_id === tid);
   if (tests) tests.sort((a, b) => (a.class_id || 0) - (b.class_id || 0));
@@ -1624,29 +1332,6 @@ async function renderTests() {
     }).join("");
   };
 
-  /* v40: student Test Analysis summary (from existing attempts only) */
-  let studAnalysis = "";
-  if (!isStaff()) {
-    const submitted = (myAttempts || []).filter(a => a.status !== "in_progress");
-    if (submitted.length) {
-      const wa = weakAreas40(submitted, tests || []);
-      const sName = (id) => (subjects || []).find(s => s.id === id)?.name || "Subject";
-      const cName = (id) => (chapters || []).find(c => c.id === id)?.name || "Chapter";
-      const overall = Math.round(submitted.reduce((s, a) => s + (+a.percent || 0), 0) / submitted.length);
-      const wbN = getWrongBank().length;
-      studAnalysis = `<div class="card"><h3>📊 My Test Analysis</h3>
-        ${barRow40("Overall average (" + submitted.length + " tests)", overall)}
-        ${wa.subjects.length ? `<div class="plan-sec">By Subject</div>` + wa.subjects.map(s => barRow40(sName(s.id) + ` (${s.n} test${s.n > 1 ? "s" : ""})`, s.avg)).join("") : ""}
-        ${wa.chapters.filter(c => c.avg < 70).length ? `<div class="plan-sec">Weak Chapters — Practise These First</div>` + wa.chapters.filter(c => c.avg < 70).slice(0, 4).map(c => barRow40(cName(c.id), c.avg)).join("") : `<p class="muted" style="margin:8px 0 0">No chapter below 70% — keep it up! 💪</p>`}
-        <div class="row" style="margin-top:12px">
-          <button class="gold" id="anaTargetBtn">🎯 Targeted Practice</button>
-          <button class="light" id="anaWrongBtn">❌ Wrong Questions${wbN ? ` (${wbN})` : ""}</button>
-        </div>
-        <p class="muted" style="margin:8px 0 0">Tip: open any result once — its wrong questions are saved to the Wrong Question Bank automatically.</p>
-      </div>`;
-    }
-  }
-
   $app.innerHTML = `
     ${isStaff() ? `
     <details class="card"><summary>➕ Create a New Test</summary>
@@ -1670,7 +1355,6 @@ async function renderTests() {
     <div class="card"><h3>📝 ${isStaff() ? "All Tests" : "My Tests"}</h3>
     <p class="muted" style="margin:0">Tests are grouped by subject — open a subject to see its tests.</p></div>
     ${groupedTests()}
-    ${studAnalysis}
     <div id="tResults"></div>`;
 
   if (isStaff()) {
@@ -1746,8 +1430,6 @@ async function renderTests() {
     const [aid, tid] = b.dataset.tresult.split(":");
     showResult(+aid, (tests || []).find(x => x.id === +tid));
   });
-  document.getElementById("anaTargetBtn")?.addEventListener("click", () => renderTargetPractice("tests"));
-  document.getElementById("anaWrongBtn")?.addEventListener("click", () => renderWrongBank("tests"));
 }
 
 async function renderTestResults(testId) {
@@ -1964,8 +1646,6 @@ async function onPickOption(qid, key) {
     await saveAnswer(qid);
     const { data } = await sb.rpc("reveal_answer", { p_attempt_id: run.attempt.id, p_question_id: qid });
     if (data && data[0]) run.feedback.set(qid, data[0]);
-    const fb40 = run.feedback.get(qid);
-    if (fb40 && fb40.is_correct === false) bankAddWrong([wrongSnap40({ question_id: q.question_id, qtype: q.qtype, question_text: q.question_text, options: q.options, correct_answer: fb40.correct_answer, my_answer: run.answers.get(qid), explanation: fb40.explanation }, run.test)]);
     refreshQBlock(q);
     updateRunMeta();
     return;
@@ -2112,7 +1792,6 @@ async function showResult(attemptId, test) {
       <button class="light" id="resBack">← Back to Tests</button>
       ${canRestart ? `<button class="gold" id="resRestart">🔁 Retake Test (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
     </div>
-    <div id="resAnalysis"></div>
     ${error ? `<div class="card"><p>A detailed review is not available right now (${esc(error.message)}). Your result is shown above.</p></div>`
     : `<div id="revBox"></div>`}
     <button class="light" id="resBack2" style="width:100%">← Back to Tests</button>`;
@@ -2120,36 +1799,6 @@ async function showResult(attemptId, test) {
   document.getElementById("resBack").onclick = goBack;
   document.getElementById("resBack2").onclick = goBack;
   if (canRestart) document.getElementById("resRestart").onclick = () => startTest(test, myTestAttempts);
-  /* v40: Test Analysis Pro + auto-save wrong questions (students) */
-  if (!isStaff() && revState && revState.rows.length) {
-    syncWrongFromReview(revState.rows, test);
-    const rows = revState.rows;
-    const corr = rows.filter(r => r.is_correct === true).length;
-    const wrong = rows.filter(r => r.is_correct === false).length;
-    const isSkip = (r) => { const m = Array.isArray(r.my_answer) ? r.my_answer[0] : null; return m === null || m === undefined || String(m).trim() === ""; };
-    const skipped = rows.filter(isSkip).length;
-    const pending = rows.length - corr - wrong - skipped;
-    const attempted = corr + wrong;
-    const acc = attempted ? Math.round((corr / attempted) * 100) : 0;
-    const typeMap = {};
-    rows.forEach(r => { const k = r.qtype || "mcq_single"; (typeMap[k] ||= { c: 0, w: 0 }); if (r.is_correct === true) typeMap[k].c++; else if (r.is_correct === false) typeMap[k].w++; });
-    const typeLabel = { mcq_single: "Multiple Choice", mcq_multi: "Multi-Select", true_false: "True / False", fill_blank: "Fill in the Blanks", short: "Short Answer", descriptive: "Long Answer" };
-    const host = document.getElementById("resAnalysis");
-    if (host) host.innerHTML = `<div class="card"><h3>📊 Test Analysis</h3>
-      <div class="stats">
-        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n">${corr}</div><div class="l">Correct</div></div>
-        <div class="stat"><div class="si" style="background:#fdecea">❌</div><div class="n">${wrong}</div><div class="l">Wrong</div></div>
-        <div class="stat"><div class="si" style="background:#fdf3d7">⏭️</div><div class="n">${skipped}</div><div class="l">Skipped</div></div>
-      </div>
-      ${barRow40("Accuracy (of attempted questions)", acc)}
-      ${pending ? `<p class="muted" style="margin:6px 0 0">⏳ ${pending} answer${pending > 1 ? "s are" : " is"} waiting for the teacher's check.</p>` : ""}
-      ${Object.keys(typeMap).length > 1 ? `<div class="plan-sec">By Question Type</div>` + Object.entries(typeMap).map(([k, v]) => { const t = v.c + v.w; return t ? barRow40(`${typeLabel[k] || k} — ${v.c}/${t} correct`, Math.round((v.c / t) * 100)) : ""; }).join("") : ""}
-      ${test && (test.subject_id || test.chapter_id) ? `<p class="muted" style="margin:8px 0 0">This test's score also feeds your chapter-wise weak-area analysis on Home and Tests.</p>` : ""}
-      ${wrong ? `<button class="gold" id="resWrongBtn" style="width:100%; margin-top:12px">❌ Re-practise ${wrong} Wrong Question${wrong > 1 ? "s" : ""} →</button>
-      <p class="muted" style="margin:6px 0 0; text-align:center">Saved to your Wrong Question Bank automatically.</p>` : `<p style="margin:10px 0 0">🎉 No wrong answers in this test — excellent!</p>`}
-    </div>`;
-    document.getElementById("resWrongBtn")?.addEventListener("click", () => renderWrongBank("tests"));
-  }
   if (!error) drawReview();
   window.scrollTo({ top: 0 });
 }
