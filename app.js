@@ -36,6 +36,17 @@ function toast(msg, ms = 2600) {
 }
 const isStaff = () => profile && (profile.role === "admin" || profile.role === "teacher");
 
+/* ---------------- CSV export (v45 — client-side, only data already loaded on screen) ---------------- */
+function downloadCSV(filename, headers, rows) {
+  const q = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = "\uFEFF" + [headers, ...rows].map(r => r.map(q).join(",")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 /* ---------------- Photo pick (Camera / Gallery) + auto-compress ----------------
    Compression runs 100% inside the browser (Canvas) — free, no server/AI
    cost. A 3-5 MB camera photo typically becomes 150-350 KB, so storage
@@ -617,7 +628,7 @@ async function renderManage() {
   const chapsOf = (sid) => (chapters || []).filter(c => c.subject_id === sid);
 
   $app.innerHTML = `
-    <div class="card">
+    <div class="card pol-sec">
       <h3>🏫 Classes, Subjects & Chapters</h3>
       <p>This structure is the foundation of notes, materials, questions and tests.</p>
       ${(classes || []).map(c => `
@@ -632,9 +643,9 @@ async function renderManage() {
       <label>New Class Name</label>
       <div class="row"><input id="newClass" placeholder="e.g. Class 10"><button class="gold" id="addClassBtn">Add</button></div>
     </div>
-    <div class="card"><h3>💰 Fees</h3><p class="muted" style="margin:0 0 10px">Fees now has its own section — open it from the Fees tab below.</p><button class="gold" id="goFees" style="width:100%">💰 Open Fees Section</button></div>
+    <div class="card pol-sec"><h3>💰 Fees</h3><p class="muted" style="margin:0 0 10px">Fees now has its own section — open it from the Fees tab below.</p><button class="gold" id="goFees" style="width:100%">💰 Open Fees Section</button></div>
     <div id="qbank"></div>
-    <div class="card">
+    <div class="card pol-sec">
       <h3>📢 Post a Notice</h3>
       <label>Title</label><input id="annTitle" placeholder="e.g. Holiday tomorrow">
       <label>Details</label><textarea id="annBody" placeholder="Write in detail…"></textarea>
@@ -680,7 +691,7 @@ async function renderManage() {
 /* ---------------- Fees (staff) ---------------- */
 async function renderFeesPage() {
   $app.innerHTML = `
-    <div class="card"><h3>💰 Fees</h3>
+    <div class="card pol-sec"><h3>💰 Fees • फ़ीस प्रबंधन</h3>
       <p class="muted" style="margin:0">Set the fee for a class, create fees for the whole class and record payments. When a fee is created or a payment is recorded, the student automatically gets a notification (app + phone).</p>
     </div>
     <div id="fees"></div>`;
@@ -713,13 +724,14 @@ async function renderFees() {
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const now = new Date();
   const defaultPeriod = `${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  const thisMonthPaid = (records || []).filter(r => r.period === defaultPeriod).reduce((s, r) => s + +r.paid_amount, 0);
 
   host.innerHTML = `
-    <div class="card"><h3>💰 Fees</h3>
+    <div class="card pol-sec v45rows"><h3>💰 Fees • फ़ीस</h3>
       <div class="stats">
-        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">Total Collected</div></div>
-        <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n">₹${totalDue.toLocaleString("en-IN")}</div><div class="l">Total Due</div></div>
-        <div class="stat"><div class="si" style="background:#e8f1fe">🧾</div><div class="n">${(records || []).length}</div><div class="l">Fee records</div></div>
+        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">कुल वसूली • Collected</div></div>
+        <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n">₹${totalDue.toLocaleString("en-IN")}</div><div class="l">कुल बकाया • Due</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">🧾</div><div class="n">₹${thisMonthPaid.toLocaleString("en-IN")}</div><div class="l">इस माह वसूली • ${esc(defaultPeriod)}</div></div>
       </div>
       <label>Set Fees by Class</label>
       ${myClasses.map(c => `<div class="row" style="align-items:flex-end; margin-bottom:4px">
@@ -740,13 +752,13 @@ async function renderFees() {
       </div>
       <div class="error" id="fg_err"></div>
       <button class="gold" id="fg_gen" style="width:100%">Create Fee for All Students</button>
-      <label style="margin-top:14px">Recent Fee Records</label>
+      <div class="v45-head" style="margin-top:14px"><label style="margin:0">Recent Fee Records • ताज़ा फ़ीस रिकॉर्ड</label><button class="light small" id="feesCsvBtn">⬇ CSV Download</button></div>
       <p class="muted" style="margin:0 0 6px">Tap 📲 WhatsApp on any paid record to send the fee receipt on WhatsApp. Tap 🗑 Delete to remove a record created by mistake.</p>
       ${(records || []).map(r => `<div class="item"><div>
           <div class="t" style="font-size:14px">${esc(nameOf(r.student_id))}</div>
           <div class="s">${esc(r.fee_type)} • ${esc(r.period)} • ₹${r.paid_amount} of ₹${r.amount} paid${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">Due ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
         <span style="display:flex; gap:6px; align-items:center">
-          <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span>
+          <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status === "paid" ? "Paid • जमा" : r.status === "partial" ? "Partial • आंशिक" : "Pending • बाकी"}</span>
           ${+r.paid_amount > 0 ? `<a class="light small" style="background:#e7f8ee; border-color:#25d366; color:#075e54; text-decoration:none" href="${waLink(phoneOf(r.student_id), waReceipt(r))}" target="_blank" rel="noopener">📲 WhatsApp</a>` : ""}
           ${r.status !== "paid" ? `<button class="light small" data-fpay="${r.id}:${+r.amount - +r.paid_amount}">+ Payment</button>` : ""}
           <button class="light small" style="color:var(--bad)" data-fdel="${r.id}">🗑 Delete</button>
@@ -813,6 +825,12 @@ async function renderFees() {
     if (!del || !del.length) return toast("Could not delete — permission issue");
     toast("Fee record deleted 🗑"); renderFees();
   });
+  document.getElementById("feesCsvBtn").onclick = () => {
+    if (!(records || []).length) return toast("No fee records to download");
+    downloadCSV("fees.csv", ["Student", "Class", "Type", "Period", "Amount", "Paid", "Balance", "Status", "Due Date"],
+      records.map(r => [nameOf(r.student_id), (myClasses.find(c => c.id === r.class_id) || {}).name || "", r.fee_type, r.period, r.amount, r.paid_amount, +r.amount - +r.paid_amount, r.status, r.due_date || ""]));
+    toast("CSV downloaded ⬇");
+  };
 }
 
 /* ---------------- Question Bank (staff only) ---------------- */
@@ -822,7 +840,7 @@ async function renderQBank(subjects, chapters) {
   const { data: qs } = await sb.from("questions").select("*").order("created_at", { ascending: false }).limit(30);
   const subName = (id) => (subjects.find(s => s.id === id) || {}).name || "";
   host.innerHTML = `
-    <div class="card"><h3>❓ Question Bank (${qs ? qs.length : 0} recent)</h3>
+    <div class="card pol-sec"><h3>❓ Question Bank (${qs ? qs.length : 0} recent)</h3>
       <p>Questions from here will be used in tests. Only staff can see the correct answers — students never see them.</p>
       <label>Type</label>
       <select id="q_type">
@@ -854,7 +872,7 @@ async function renderQBank(subjects, chapters) {
       </div>
       <div class="error" id="q_err"></div>
       <button class="gold" id="q_add" style="width:100%">Add Question</button>
-      <div style="margin-top:10px">
+      <div class="v45rows" style="margin-top:10px">
       ${(qs || []).map(q => `<div class="item"><div><div class="t" style="font-size:14px">${esc(q.question_text.slice(0, 90))}${q.question_text.length > 90 ? "…" : ""}</div>
         <div class="s">${esc(q.qtype)} • ${esc(subName(q.subject_id))} • ${q.marks} marks • Correct: ${esc(JSON.stringify(q.correct_answer))}</div></div>
         <button class="danger small" data-qdel="${q.id}">✕</button></div>`).join("")}
@@ -925,7 +943,7 @@ async function renderUsers() {
   }
 
   $app.innerHTML = `
-    <div class="card"><h3>➕ Add a New Student Yourself</h3>
+    <div class="card pol-sec"><h3>➕ Add a New Student Yourself</h3>
       <p>The student doesn't need to sign up — create the account yourself and give them the login details.</p>
       <label>Student's Name</label><input id="ns_name" placeholder="e.g. Rahul Kumar">
       <label>Email (student's or parent's)</label><input id="ns_email" type="email" placeholder="student@example.com">
@@ -943,10 +961,16 @@ async function renderUsers() {
       <div id="ns_done"></div>
       <button class="gold" id="ns_add" style="width:100%">Create Student</button>
     </div>
-    <div class="card"><h3>👥 All Users (${(users || []).length})</h3>
+    <div class="card v45rows"><h3>👥 All Users • सभी उपयोगकर्ता (${(users || []).length})</h3>
     <p>Change roles and add students to classes from here.</p>
+    <div class="v45-tools">
+      <input type="search" id="uSearch" placeholder="🔍 नाम, फ़ोन या क्लास खोजें…">
+      <select id="uRoleFilter"><option value="">सभी • All Roles</option><option value="student">छात्र • Student</option><option value="teacher">शिक्षक • Teacher</option><option value="parent">अभिभावक • Parent</option><option value="admin">एडमिन • Admin</option></select>
+      <button class="light small" id="usersCsvBtn">⬇ CSV Download</button>
+      <span class="muted" style="font-size:12.5px">दिख रहे: <b id="uCount">${(users || []).length}</b></span>
+    </div>
     ${(users || []).map(u => `
-      <div class="item" style="align-items:flex-start">
+      <div class="item" data-urow data-urole="${esc(u.role)}" data-usearch="${esc((u.full_name + " " + (u.phone || "") + " " + enrOf(u.id).map(className).join(" ") + " " + roleName(u.role)).toLowerCase())}" style="align-items:flex-start">
         ${u.photo_path && urlMap[u.photo_path]
           ? `<img src="${urlMap[u.photo_path]}" alt="" class="zoomable" title="Tap to view larger" data-zoom="${urlMap[u.photo_path]}" style="width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto">`
           : `<div class="avatar" style="width:44px; height:44px; font-size:17px">${esc((u.full_name || "?").trim()[0].toUpperCase())}</div>`}
@@ -1083,6 +1107,27 @@ async function renderUsers() {
       err.textContent = e.message;
       btn.disabled = false; btn.textContent = "Create Student";
     }
+  };
+  const applyUFilter = () => {
+    const q = (document.getElementById("uSearch")?.value || "").trim().toLowerCase();
+    const rf = document.getElementById("uRoleFilter")?.value || "";
+    let shown = 0;
+    $app.querySelectorAll("[data-urow]").forEach(row => {
+      const ok = (!rf || row.dataset.urole === rf) && (!q || (row.dataset.usearch || "").includes(q));
+      row.style.display = ok ? "" : "none";
+      if (ok) shown++;
+    });
+    const cnt = document.getElementById("uCount");
+    if (cnt) cnt.textContent = shown;
+  };
+  document.getElementById("uSearch").oninput = applyUFilter;
+  document.getElementById("uRoleFilter").onchange = applyUFilter;
+  document.getElementById("usersCsvBtn").onclick = () => {
+    const studs = (users || []).filter(u => u.role === "student");
+    if (!studs.length) return toast("No students to download");
+    downloadCSV("students.csv", ["Name", "Class", "Phone", "Email", "Father Name", "Date of Birth", "Admission Date", "Address"],
+      studs.map(u => [u.full_name, enrOf(u.id).map(className).join(", "), u.phone || "", u.email || "", u.father_name || "", u.dob || "", u.admission_date || "", u.address || ""]));
+    toast("CSV downloaded ⬇");
   };
 }
 
@@ -1663,18 +1708,48 @@ async function renderTests() {
 async function renderTestResults(testId) {
   const host = document.getElementById("tResults");
   host.innerHTML = `<div class="card"><div class="loading">Loading results…</div></div>`;
-  const [{ data: attempts }, { data: studs }] = await Promise.all([
+  const [{ data: attempts }, { data: studs }, { data: testRow }] = await Promise.all([
     sb.from("test_attempts").select("*").eq("test_id", testId).order("percent", { ascending: false }),
     sb.from("profiles").select("id,full_name").eq("role", "student"),
+    sb.from("tests").select("title").eq("id", testId).maybeSingle(),
   ]);
   const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
-  host.innerHTML = `<div class="card"><h3>🏆 Results</h3>
+  const testTitle = testRow?.title || "Test";
+  const resStatus = (a) => a.status === "in_progress" ? "In Progress" : (a.passed ? "Pass" : "Fail");
+  host.innerHTML = `<div class="card pol-sec v45rows">
+    <div class="v45-head"><h3>🏆 Results • परिणाम — ${esc(testTitle)}</h3>
+      <span style="display:flex; gap:6px"><button class="light small" id="resCsvBtn">⬇ CSV Download</button><button class="light small" id="resPrintBtn">🖨 Print</button></span></div>
     ${(attempts && attempts.length) ? attempts.map(a => `<div class="item"><div>
       <div class="t">${esc(nameOf(a.student_id))}</div>
       <div class="s">${a.status === "in_progress" ? "⏳ Test in progress" : `${new Date(a.submitted_at).toLocaleString("en-IN")} • ${Math.round((a.time_taken_seconds || 0) / 60)} min`}</div></div>
       ${a.status === "in_progress" ? `<span class="pill gold">LIVE</span>` : `<span class="pill ${a.passed ? "green" : "red"}">${a.score}/${a.max_score} • ${a.percent}%</span>`}
     </div>`).join("") : `<p>No student has taken this test yet.</p>`}
   </div>`;
+  document.getElementById("resCsvBtn").onclick = () => {
+    const done = (attempts || []).filter(a => a.status !== "in_progress");
+    if (!done.length) return toast("No completed results to download");
+    downloadCSV("test-results.csv", ["Student", "Test", "Score", "Max Score", "%", "Status", "Submitted", "Time (min)"],
+      done.map(a => [nameOf(a.student_id), testTitle, a.score, a.max_score, a.percent, resStatus(a), a.submitted_at ? new Date(a.submitted_at).toLocaleString("en-IN") : "", Math.round((a.time_taken_seconds || 0) / 60)]));
+    toast("CSV downloaded ⬇");
+  };
+  document.getElementById("resPrintBtn").onclick = () => {
+    const done = (attempts || []).filter(a => a.status !== "in_progress");
+    if (!done.length) return toast("No completed results to print");
+    let area = document.getElementById("printArea");
+    if (!area) { area = document.createElement("div"); area.id = "printArea"; document.body.appendChild(area); }
+    area.innerHTML = `<div class="pq">
+      <div class="pq-head"><div class="pq-name">TARGET ACADEMY COACHING CENTRE</div>
+        <div class="pq-sub">Manikpur, Gopalganj (Bihar)</div>
+        <div class="pq-title">🏆 Test Results — ${esc(testTitle)}</div></div>
+      <table><tr><th>#</th><th>Student</th><th>Score</th><th>%</th><th>Status</th><th>Submitted</th></tr>
+      ${done.map((a, i) => `<tr><td>${i + 1}</td><td>${esc(nameOf(a.student_id))}</td><td>${a.score}/${a.max_score}</td><td>${a.percent}%</td><td>${resStatus(a)}</td><td>${a.submitted_at ? new Date(a.submitted_at).toLocaleString("en-IN") : ""}</td></tr>`).join("")}
+      </table>
+      <p class="pq-sub" style="margin-top:10px">Total students: ${done.length} • Printed: ${new Date().toLocaleString("en-IN")}</p>
+    </div>`;
+    document.body.classList.add("printmode");
+    window.print();
+    setTimeout(() => document.body.classList.remove("printmode"), 600);
+  };
   host.scrollIntoView({ behavior: "smooth" });
 }
 
@@ -2828,7 +2903,7 @@ async function renderAttendance() {
     const { data: studs } = ids.length ? await sb.from("profiles").select("id,full_name").in("id", ids) : { data: [] };
     (existing || []).forEach(r => attMarks[r.student_id] = r.status);
     $app.innerHTML = `
-      <div class="card"><h3>✅ Mark Attendance</h3>
+      <div class="card pol-sec v45rows"><h3>✅ Mark Attendance • उपस्थिति लगाएँ</h3>
         <div class="row">
           <div><label>Class</label><select id="att_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === attClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
           <div><label>Date</label><input id="att_date" type="date" value="${attDate}"></div>
@@ -2840,6 +2915,7 @@ async function renderAttendance() {
               <button class="small ${attMarks[s.id] === v ? "" : "light"}" data-att="${s.id}:${v}" style="${attMarks[s.id] === v ? `background:${col}` : ""}">${l}</button>`).join("")}
           </div></div>`).join("") || `<p class="muted">There is no student in this class.</p>`}
         <button class="gold" id="att_save" style="width:100%; margin-top:10px">Save Attendance</button>
+        <button class="light" id="att_csv" style="width:100%; margin-top:8px">⬇ CSV Download — इस दिन की उपस्थिति</button>
       </div>`;
     document.getElementById("att_class").onchange = (e) => { attClassId = +e.target.value; attMarks = {}; renderAttendance(); };
     document.getElementById("att_date").onchange = (e) => { attDate = e.target.value; attMarks = {}; renderAttendance(); };
@@ -2852,6 +2928,12 @@ async function renderAttendance() {
       const { error } = await sb.from("attendance").upsert(rows, { onConflict: "student_id,on_date" });
       if (error) return toast("Error: " + error.message);
       toast(`Attendance saved ✅ (${rows.length} students)`); attMarks = {}; renderAttendance();
+    };
+    document.getElementById("att_csv").onclick = () => {
+      if (!(studs || []).length) return toast("No students to download");
+      downloadCSV(`attendance-${attDate}.csv`, ["Student", "Class", "Date", "Status"],
+        studs.map(s => [s.full_name, clsName(attClassId), attDate, attMarks[s.id] || "Not marked"]));
+      toast("CSV downloaded ⬇");
     };
     return;
   }
