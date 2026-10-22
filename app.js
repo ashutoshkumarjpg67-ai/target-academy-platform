@@ -1491,87 +1491,166 @@ async function saveAnswer(qid) {
     answered_at: new Date().toISOString(),
   }, { onConflict: "attempt_id,question_id" });
 }
-function renderRun() {
-  const { test, qs } = run;
-  const q = qs[run.idx];
-  const answered = qs.filter(x => run.answers.has(x.question_id) && run.answers.get(x.question_id) !== null).length;
+function runAnsweredCount() {
+  if (!run) return 0;
+  return run.qs.filter(x => {
+    const a = run.answers.get(x.question_id);
+    return a !== undefined && a !== null && a[0] !== undefined && a[0] !== null && String(a[0]).trim() !== "";
+  }).length;
+}
+function updateRunMeta() {
+  if (!run) return;
+  const n = runAnsweredCount(), total = run.qs.length;
+  const c = document.getElementById("runCount");
+  if (c) c.textContent = `${n} of ${total} answered`;
+  const bar = document.getElementById("runProg");
+  if (bar) bar.style.width = (total ? (n / total) * 100 : 0) + "%";
+}
+const MATCH_PREFIX = "Match the following";
+function isMatchQ(q) { return q.qtype === "mcq_single" && (q.question_text || "").startsWith(MATCH_PREFIX); }
+function matchLabel(q) {
+  const t = q.question_text || "";
+  const m = t.match(/[“"]([^”"]+)[”"]/);
+  if (m) return m[1];
+  return t.replace(/^Match the following\s*[—–-]?\s*/, "").replace(/\s*matches with:?\s*$/i, "");
+}
+function qSections() {
+  const secs = [];
+  let cur = null;
+  const push = (kind, label, q) => {
+    if (!cur || cur.kind !== kind) { cur = { kind, label, items: [] }; secs.push(cur); }
+    cur.items.push(q);
+  };
+  for (const q of run.qs) {
+    if (isMatchQ(q)) push("match", "🔗 Match the Following", q);
+    else if (q.qtype === "mcq_single" || q.qtype === "mcq_multi") push("mcq", "✏️ Multiple Choice — Tick the correct option", q);
+    else if (q.qtype === "fill_blank") push("fill", "✍️ Fill in the Blanks", q);
+    else if (q.qtype === "true_false") push("tf", "✔️ True or False", q);
+    else push("short", "📝 Short Questions — Answer in brief", q);
+  }
+  return secs;
+}
+function explHTML(fb) {
+  return `<div class="expl-box">${fb.is_correct ? "✅ <b>Correct answer!</b> Very good 🎉" : "❌ <b>Wrong answer</b> — the correct answer is shown in green above."}${fb.explanation ? `<br>💡 <b>Explanation:</b> ${esc(fb.explanation)}` : ""}</div>`;
+}
+function qBlockHTML(q, n) {
+  const fb = (run.test.instant_feedback && run.feedback) ? run.feedback.get(q.question_id) : null;
+  const cur = (run.answers.get(q.question_id) || [])[0];
   const opts = Array.isArray(q.options) ? q.options : [];
-  let body = "";
-  const fb = (test.instant_feedback && run.feedback) ? run.feedback.get(q.question_id) : null;
-  if (q.qtype === "mcq_single" || q.qtype === "true_false") {
-    const cur = (run.answers.get(q.question_id) || [])[0];
+  if (q.qtype === "mcq_single" || q.qtype === "mcq_multi" || q.qtype === "true_false") {
     const keyLabel = (o) => esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : o.key);
+    let body;
     if (fb) {
       const rightKey = Array.isArray(fb.correct_answer) ? String(fb.correct_answer[0]) : null;
-      body = opts.map(o => `<button class="option ${String(o.key) === rightKey ? "right" : cur === o.key ? "wrong" : ""}" disabled><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("")
-        + `<div class="expl-box">${fb.is_correct ? "✅ <b>Correct answer!</b> Very good 🎉" : "❌ <b>Wrong answer</b> — the correct answer is shown in green above."}${fb.explanation ? `<br>💡 <b>Explanation:</b> ${esc(fb.explanation)}` : ""}</div>
-        <p class="muted" style="margin-top:6px">🔒 This answer is locked — move to the next question.</p>`;
+      body = `<div class="${q.qtype === "true_false" ? "tfrow" : ""}">` + opts.map(o => `<button class="option ${String(o.key) === rightKey ? "right" : String(cur) === String(o.key) ? "wrong" : ""}" disabled><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("") + `</div>` + explHTML(fb);
     } else {
-      body = opts.map(o => `<button class="option ${cur === o.key ? "sel" : ""}" data-opt="${esc(o.key)}"><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("");
+      body = `<div class="${q.qtype === "true_false" ? "tfrow" : ""}">` + opts.map(o => `<button class="option ${String(cur) === String(o.key) ? "sel" : ""}" data-optq="${q.question_id}" data-opt="${esc(o.key)}"><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("") + `</div>`;
     }
-  } else if (q.qtype === "fill_blank" || q.qtype === "short" || q.qtype === "descriptive") {
-    const cur = (run.answers.get(q.question_id) || [])[0] || "";
-    body = `<input id="ansText" placeholder="Write your answer…" value="${esc(cur)}">
-      ${q.qtype !== "fill_blank" ? `<p class="muted">The teacher will check this answer.</p>` : ""}`;
+    return `<div class="qblock" id="qq-${q.question_id}" data-n="${n}"><div class="qline"><span class="qno">${n}.</span> ${esc(q.question_text)} <span class="qmarks">[${q.marks}]</span></div>${body}</div>`;
   }
-  $app.innerHTML = `
-    <div class="card">
-      <div class="test-top">
-        <h3 style="margin:0">${esc(test.title)}</h3>
-        <span style="display:flex; gap:8px; align-items:center">
-          <span class="cnt">${run.idx + 1} / ${qs.length}</span>
-          <span class="timer-pill" id="tTimer">⏱ --:--</span>
-        </span>
-      </div>
-      <div class="prog" style="margin:12px 0 4px"><div style="width:${qs.length ? (answered / qs.length) * 100 : 0}%"></div></div>
-      <p class="muted">Question ${run.idx + 1} / ${qs.length} • Answered: ${answered} • This question carries ${q.marks} marks</p>
-      ${test.instant_feedback
-        ? `<p class="muted" style="margin-top:2px">⚡ <b>Practice Mode:</b> as soon as you choose an option, ✅ correct / ❌ wrong + the explanation will appear. The first click will be your answer — it cannot be changed later.</p>`
-        : `<p class="muted" style="margin-top:2px">Choose one answer — it will only be saved. ✅ Correct / ❌ wrong and the 💡 explanation will be shown in the result after you submit.</p>`}
-      <div style="font-size:17.5px; font-weight:700; line-height:1.55; margin:14px 0"><span class="qno">Q${run.idx + 1}.</span> ${esc(q.question_text)}</div>
-      ${body}
-      <div class="row" style="margin-top:14px">
-        ${fb ? "" : `<button class="light" id="clearQ">🧹 Clear Answer</button>`}
-        <button class="${run.review.has(q.question_id) ? "gold" : "light"}" id="revQ">🔖 Mark for Review</button>
-      </div>
-      <button class="gold" id="submitTest" style="width:100%; margin-top:12px">✅ Submit Test</button>
-    </div>
-    <div class="card" style="margin-bottom:170px"><h3>Question List</h3>
-      <div class="grid">${qs.map((x, i) => `<button class="${i === run.idx ? "cur" : ""} ${run.review.has(x.question_id) ? "review" : run.answers.has(x.question_id) && run.answers.get(x.question_id) !== null ? "done" : ""}" data-jump="${i}">${i + 1}</button>`).join("")}</div>
-      <p class="muted">Dark blue = answered • Yellow = marked for review • Ring = current question</p>
-    </div>
-    <div class="runnav">
-      <button class="light" id="prevQ" ${run.idx === 0 ? "disabled" : ""}>← Previous Question</button>
-      <button class="gold" id="nextQ" ${run.idx === qs.length - 1 ? "disabled" : ""}>Next Question →</button>
+  if (q.qtype === "fill_blank") {
+    const parts = String(q.question_text).split(/_____+/);
+    const sentence = parts.map(p => esc(p)).join(`<input class="blank-in" data-fillq="${q.question_id}" value="${esc(cur ?? "")}" placeholder="……">`);
+    return `<div class="qblock" id="qq-${q.question_id}" data-n="${n}"><div class="qline"><span class="qno">${n}.</span> ${sentence} <span class="qmarks">[${q.marks}]</span></div></div>`;
+  }
+  return `<div class="qblock" id="qq-${q.question_id}" data-n="${n}"><div class="qline"><span class="qno">${n}.</span> ${esc(q.question_text)} <span class="qmarks">[${q.marks}]</span></div>
+    <textarea data-textq="${q.question_id}" placeholder="Write your answer here">${esc(cur ?? "")}</textarea>
+    <p class="muted" style="margin:4px 0 0">The teacher will check this answer.</p></div>`;
+}
+function matchRowHTML(q, n) {
+  const fb = (run.test.instant_feedback && run.feedback) ? run.feedback.get(q.question_id) : null;
+  const cur = (run.answers.get(q.question_id) || [])[0];
+  const opts = Array.isArray(q.options) ? q.options : [];
+  return `<div class="qblock mrow" id="qq-${q.question_id}" data-n="${n}">
+    <div class="mlabel"><span class="qno">${n}.</span> ${esc(matchLabel(q))}</div>
+    <select data-matchq="${q.question_id}" class="${fb ? (fb.is_correct ? "mok" : "mbad") : ""}" ${fb ? "disabled" : ""}>
+      <option value="">Choose</option>
+      ${opts.map(o => `<option value="${esc(o.key)}" ${String(cur) === String(o.key) ? "selected" : ""}>(${esc(String(o.key).toLowerCase())}) ${esc(o.text)}</option>`).join("")}
+    </select>
+    ${fb ? explHTML(fb) : ""}
+  </div>`;
+}
+function bindBlockEl(el, q) {
+  if (!el) return;
+  el.querySelectorAll("[data-optq]").forEach(b => b.onclick = () => onPickOption(q.question_id, b.dataset.opt));
+  el.querySelectorAll("[data-fillq]").forEach(inp => inp.onchange = () => onTextAnswer(q.question_id, inp.value));
+  el.querySelectorAll("[data-textq]").forEach(inp => inp.onchange = () => onTextAnswer(q.question_id, inp.value));
+  el.querySelectorAll("[data-matchq]").forEach(sel => sel.onchange = () => onPickOption(q.question_id, sel.value || null));
+}
+function refreshQBlock(q) {
+  const host = document.getElementById("qq-" + q.question_id);
+  if (!host) return;
+  const n = +(host.dataset.n || 1);
+  const tmp = document.createElement("div");
+  tmp.innerHTML = isMatchQ(q) ? matchRowHTML(q, n) : qBlockHTML(q, n);
+  const fresh = tmp.firstElementChild;
+  host.replaceWith(fresh);
+  bindBlockEl(fresh, q);
+}
+async function onPickOption(qid, key) {
+  if (!run) return;
+  const q = run.qs.find(x => x.question_id === qid);
+  if (!q) return;
+  if (run.test.instant_feedback) {
+    if (key === null) return;
+    if (run.answers.has(qid) && run.answers.get(qid) !== null) return; // first answer locks
+    run.answers.set(qid, [key]);
+    await saveAnswer(qid);
+    const { data } = await sb.rpc("reveal_answer", { p_attempt_id: run.attempt.id, p_question_id: qid });
+    if (data && data[0]) run.feedback.set(qid, data[0]);
+    refreshQBlock(q);
+    updateRunMeta();
+    return;
+  }
+  if (key === null || String((run.answers.get(qid) || [])[0]) === String(key)) run.answers.delete(qid);
+  else run.answers.set(qid, [key]);
+  await saveAnswer(qid);
+  refreshQBlock(q);
+  updateRunMeta();
+}
+async function onTextAnswer(qid, value) {
+  if (!run) return;
+  const v = value ?? "";
+  if (String(v).trim() === "") run.answers.delete(qid); else run.answers.set(qid, [v]);
+  await saveAnswer(qid);
+  updateRunMeta();
+}
+function renderRun() {
+  const { test, qs } = run;
+  const secs = qSections();
+  const secHTML = secs.map(sec => {
+    const marks = sec.items.reduce((s, x) => s + (+x.marks || 0), 0);
+    const inner = sec.kind === "match"
+      ? sec.items.map((q, i) => matchRowHTML(q, i + 1)).join("")
+      : sec.items.map((q, i) => qBlockHTML(q, i + 1)).join("");
+    return `<div class="card qsec-card">
+      <div class="qsec"><span>${sec.label}</span><span class="qsec-marks">${marks} mark${marks === 1 ? "" : "s"}</span></div>
+      ${inner}
     </div>`;
-  $app.querySelectorAll("[data-opt]").forEach(b => b.onclick = async () => {
-    if (run.test.instant_feedback) {
-      if (run.answers.has(q.question_id) && run.answers.get(q.question_id) !== null) return; // first click locks
-      run.answers.set(q.question_id, [b.dataset.opt]);
-      await saveAnswer(q.question_id);
-      const { data } = await sb.rpc("reveal_answer", { p_attempt_id: run.attempt.id, p_question_id: q.question_id });
-      if (data && data[0]) run.feedback.set(q.question_id, data[0]);
-      renderRun();
-      return;
-    }
-    run.answers.set(q.question_id, [b.dataset.opt]); await saveAnswer(q.question_id); renderRun();
-  });
-  const txt = document.getElementById("ansText");
-  if (txt) txt.onchange = async () => { run.answers.set(q.question_id, [txt.value]); await saveAnswer(q.question_id); renderRun(); };
-  document.getElementById("prevQ").onclick = () => { run.idx--; renderRun(); };
-  document.getElementById("nextQ").onclick = () => { run.idx++; renderRun(); };
-  const clearBtn = document.getElementById("clearQ");
-  if (clearBtn) clearBtn.onclick = async () => {
-    run.answers.delete(q.question_id); await saveAnswer(q.question_id); renderRun();
-  };
-  document.getElementById("revQ").onclick = async () => {
-    run.review.has(q.question_id) ? run.review.delete(q.question_id) : run.review.add(q.question_id);
-    await saveAnswer(q.question_id); renderRun();
-  };
-  $app.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { run.idx = +b.dataset.jump; renderRun(); });
+  }).join("");
+  $app.innerHTML = `
+    <div class="testbar">
+      <div class="testbar-row">
+        <span class="tb-title">${esc(test.title)}</span>
+        <span class="cnt" id="runCount"></span>
+        <span class="timer-pill" id="tTimer">⏱ --:--</span>
+      </div>
+      <div class="prog" style="margin-top:8px"><div id="runProg"></div></div>
+    </div>
+    <div class="card" style="padding:10px 14px"><p class="muted" style="margin:0">${test.instant_feedback
+      ? "⚡ <b>Practice Mode:</b> as soon as you choose an option for a question, ✅ correct / ❌ wrong + the explanation will appear there itself, and that answer will be locked. Fill-in and written answers are saved as you type."
+      : "Answers are saved automatically as you go. ✅ Correct / ❌ wrong and the 💡 explanation will be shown in the result after you submit."}</p></div>
+    ${secHTML}
+    <div class="card" style="margin-bottom:26px">
+      <button class="gold" id="submitTest" style="width:100%">✅ Submit Test</button>
+      <p class="muted" style="text-align:center; margin:8px 0 0">Answers cannot be changed after submitting.</p>
+    </div>`;
+  run.qs.forEach(q => bindBlockEl(document.getElementById("qq-" + q.question_id), q));
   document.getElementById("submitTest").onclick = () => {
-    if (confirm("Submit the test? You will not be able to change answers after this.")) finishTest(false);
+    const n = runAnsweredCount(), total = run.qs.length;
+    if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
   };
+  updateRunMeta();
   tickTimer();
 }
 async function finishTest(auto) {
