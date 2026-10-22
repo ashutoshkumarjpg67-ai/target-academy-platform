@@ -627,7 +627,7 @@ async function renderFees() {
       <div class="error" id="fg_err"></div>
       <button class="gold" id="fg_gen" style="width:100%">Create Fee for All Students</button>
       <label style="margin-top:14px">Recent Fee Records</label>
-      <p class="muted" style="margin:0 0 6px">Tap 📲 WhatsApp on any paid record to send the fee receipt on WhatsApp.</p>
+      <p class="muted" style="margin:0 0 6px">Tap 📲 WhatsApp on any paid record to send the fee receipt on WhatsApp. Tap 🗑 Delete to remove a record created by mistake.</p>
       ${(records || []).map(r => `<div class="item"><div>
           <div class="t" style="font-size:14px">${esc(nameOf(r.student_id))}</div>
           <div class="s">${esc(r.fee_type)} • ${esc(r.period)} • ₹${r.paid_amount} of ₹${r.amount} paid${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">Due ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
@@ -635,6 +635,7 @@ async function renderFees() {
           <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status}</span>
           ${+r.paid_amount > 0 ? `<a class="light small" style="background:#e7f8ee; border-color:#25d366; color:#075e54; text-decoration:none" href="${waLink(phoneOf(r.student_id), waReceipt(r))}" target="_blank" rel="noopener">📲 WhatsApp</a>` : ""}
           ${r.status !== "paid" ? `<button class="light small" data-fpay="${r.id}:${+r.amount - +r.paid_amount}">+ Payment</button>` : ""}
+          <button class="light small" style="color:var(--bad)" data-fdel="${r.id}">🗑 Delete</button>
         </span></div>`).join("") || `<p class="muted">No fee records yet.</p>`}
     </div>`;
 
@@ -687,6 +688,16 @@ async function renderFees() {
     notifyUsers([rec.student_id], "fee", "💰 Fee Paid",
       `₹${v} has been paid towards your ${rec.fee_type} fee (${rec.period}). Total paid: ₹${paid} / ₹${rec.amount}${dueLeft > 0 ? ` • Due: ₹${dueLeft}` : " • Full fee paid ✅"}`);
     toast("Payment recorded ✅"); renderFees();
+  });
+  host.querySelectorAll("[data-fdel]").forEach(b => b.onclick = async () => {
+    const rec = (records || []).find(r => r.id === +b.dataset.fdel);
+    if (!rec) return;
+    const warn = +rec.paid_amount > 0 ? `\n\n⚠️ Warning: ₹${rec.paid_amount} is already PAID on this record — deleting will also remove that payment record!` : "";
+    if (!confirm(`Delete this fee record?\n\n${nameOf(rec.student_id)} — ${rec.fee_type} (${rec.period}) • ₹${rec.amount}${warn}\n\nThis cannot be undone.`)) return;
+    const { data: del, error } = await sb.from("fee_records").delete().eq("id", rec.id).select("id");
+    if (error) return toast("Error: " + error.message);
+    if (!del || !del.length) return toast("Could not delete — permission issue");
+    toast("Fee record deleted 🗑"); renderFees();
   });
 }
 
