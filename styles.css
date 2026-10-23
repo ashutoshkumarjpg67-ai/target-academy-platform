@@ -804,3 +804,12 @@ input,select,textarea{font-size:16px}
 .option{font-size:16px; line-height:1.6}
 .expl-box{line-height:1.7}
 .rev-stats .stat .l{font-size:12px; color:#44546c}
+
+/* ==========================================================
+   v57 — UI PHASE 6 FEES + ATTENDANCE + NOTICES (blueprint)
+   Fee meta and calendar legend text clearer. Amounts, dates,
+   statuses and the calendar logic untouched — .due-big and
+   the colour+label calendar states were already at standard.
+   ========================================================== */
+.frow .fs{font-size:12.5px; color:#4a5a70}
+.cal-legend{color:#4a5a70}
