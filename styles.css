@@ -722,3 +722,33 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 .bubble.ai code,.expl-box code{background:#e2e8f8;padding:0 4px;border-radius:4px;font-size:92%}
 .expl-box .ai-p{margin:0 0 6px}
 .expl-box .ai-p:last-child{margin-bottom:0}
+
+/* ==========================================================
+   v52 — UI PHASE 1 FOUNDATION (ChatGPT blueprint, Muse-reviewed)
+   Additive only: new tokens + tap-target/zoom/reduced-motion
+   safety. No existing token values, classes or layouts changed.
+   Deliberately NOT here yet (later phases): tabbar, pagehead,
+   cards/hero, test-screen components.
+   ========================================================== */
+:root{
+  --surface-soft:#f7f9fd; --surface-navy:#eaf0fb;
+  --success-bg:#e0f5ec; --error-bg:#fdecea;
+  --warning:#8a6100; --warning-bg:#fff5d8;
+  --focus:rgba(242,183,5,.28);
+  --text-xs:12px; --text-sm:14px; --text-base:16px; --text-lg:18px;
+  --text-xl:22px; --text-2xl:28px; --text-display:32px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:20px; --space-6:24px; --space-8:32px;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-xl:22px; --radius-pill:999px;
+  --control-height:48px;
+  --gradient-navy:linear-gradient(120deg,#081c3a,#0e2f5e 65%,#17457f);
+  --gradient-gold:linear-gradient(135deg,#ffd23e,#f2b705);
+}
+button{min-height:44px; touch-action:manipulation}
+button.small{min-height:38px}
+.chip{min-height:40px}
+input,select,textarea{font-size:16px}
+#toast{max-width:min(92vw,480px); overflow-wrap:anywhere}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important}
+}
