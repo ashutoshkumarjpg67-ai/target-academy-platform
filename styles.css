@@ -813,3 +813,13 @@ input,select,textarea{font-size:16px}
    ========================================================== */
 .frow .fs{font-size:12.5px; color:#4a5a70}
 .cal-legend{color:#4a5a70}
+
+/* ==========================================================
+   v58 — UI PHASE 7 AI TUTOR + DOUBTS + HOMEWORK (blueprint)
+   AI answers are long Hindi text: looser line-height in chat
+   bubbles and a little more air between bullet points.
+   Doubts/Homework ride on the shared .item/.pill system
+   already improved in Phase 4. No behaviour change.
+   ========================================================== */
+.bubble{line-height:1.65}
+.ai-li{margin-top:4px; margin-bottom:4px}
