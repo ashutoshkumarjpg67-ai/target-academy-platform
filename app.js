@@ -396,13 +396,13 @@ function renderShell() {
     { id: "homework", ic: "📒", label: "Homework" },
     { id: "attendance", ic: "✅", label: "Attendance" },
     { id: "timetable", ic: "🗓️", label: "Timetable" },
-    ...(isStaff() ? [{ id: "studio", ic: "🎬", label: "Video Studio" }] : []),
+    { id: "studio", ic: "🎬", label: "Video Studio" },
   ];
   const byId = {};
   [...tabs, ...extraTabs].forEach(t => { byId[t.id] = t; });
   const sideGroups = [
     ["मुख्य • Main", ["home", "study", "tests", "fees"]],
-    ["पढ़ाई • Learn", ["homework", "live", "timetable"]],
+    ["पढ़ाई • Learn", ["homework", "live", "timetable", ...(isStaff() ? [] : ["studio"])]],
     ["सहायता और प्रगति • Help & Progress", ["doubts", "tutor", "top", "attendance"]],
     ...(isStaff() ? [["स्टाफ़ • Staff", ["manage", "studio", ...(profile.role === "admin" ? ["users"] : [])]]] : []),
     ["खाता • Account", ["more"]],
@@ -2422,6 +2422,7 @@ async function renderMore() {
       <div class="hubrow" data-nav="homework"><span class="hic" style="background:#e2f4ec">📒</span><span class="hub-tx"><span class="hub-t">Homework</span><span class="hub-d">Assignments from your teachers</span></span><span class="arr">›</span></div>
       <div class="hubrow" data-nav="timetable"><span class="hic" style="background:#e8f1fe">🗓️</span><span class="hub-tx"><span class="hub-t">Timetable</span><span class="hub-d">Your class schedule</span></span><span class="arr">›</span></div>
       <div class="hubrow" data-nav="live"><span class="hic" style="background:#fdecea">📺</span><span class="hub-tx"><span class="hub-t">Live Class</span><span class="hub-d">Upcoming live sessions</span></span><span class="arr">›</span></div>
+      ${isStaff() ? "" : `<div class="hubrow" data-nav="studio"><span class="hic" style="background:#fdecea">🎬</span><span class="hub-tx"><span class="hub-t">Video Studio</span><span class="hub-d">YouTube lesson → your own notes & MCQs</span></span><span class="arr">›</span></div>`}
     </div>
     <div class="card"><h3>📝 टेस्ट और प्रगति • Tests & Progress</h3>
       <div class="hubrow" data-nav="tests"><span class="hic" style="background:#fff4cf">📝</span><span class="hub-tx"><span class="hub-t">Tests</span><span class="hub-d">Practice tests and exams</span></span><span class="arr">›</span></div>
@@ -2502,6 +2503,7 @@ async function renderProfile() {
       ${row("homework", "📒", "#e2f4ec", "होमवर्क", "शिक्षकों के असाइनमेंट")}
       ${row("doubts", "❓", "#fdecea", "मेरे Doubts", "सवाल पूछें, जवाब पाएँ")}
       ${row("tutor", "🤖", "#efe7fd", "AI Tutor", "कदम-दर-कदम सीखें")}
+      ${row("studio", "🎬", "#fdecea", "Video Studio", "YouTube video से अपने notes और MCQ बनाएँ")}
       ${row("live", "📺", "#fdecea", "Live Class", "आने वाली लाइव कक्षाएँ")}
       ${row("timetable", "🗓️", "#e8f1fe", "Timetable", "क्लास का समय")}
       ${row("notif", "🔔", "#fff4cf", "नोटिफ़िकेशन", "सभी ताज़ा अपडेट")}
@@ -3383,12 +3385,15 @@ async function renderTimetable() {
   }
 }
 
-/* ---------------- Video Studio (staff only) ----------------
+/* ---------------- Video Studio (staff + student personal mode) ----------------
    YouTube video -> AI notes, MCQs, questions & flashcards.
    Generation runs in the video-study Edge Function (Gemini watches the
    video itself — no transcript scraping). A second AI pass re-checks
    every MCQ answer; doubtful MCQs are flagged, never silently trusted.
-   Results are stored per-teacher in studio_generations (own rows only). */
+   Results are stored per-user in studio_generations (own rows only).
+   Staff rows may be imported into the shared Question Bank or published
+   as class Notes. Student rows are PERSONAL (payload.personal) — the
+   import/publish buttons are never rendered for them. */
 let studioTab = "notes";   // notes | mcqs | questions | cards | glossary
 let studioCurrent = null;  // open studio_generations row
 let studioBusy = false;
@@ -3400,7 +3405,6 @@ const ytIdOf = (u) => {
 const studioLangLabel = (m) => ({ bilingual: "Hindi + English", hindi: "Hindi", english: "English" }[m] || m || "");
 
 async function renderStudio() {
-  if (!isStaff()) { $app.innerHTML = `<div class="card"><h3>🎬 Video Studio</h3><p class="muted">This section is for teachers only.</p></div>`; return; }
   if (studioCurrent) { renderStudioResult(); return; }
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const [gRes, sRes, cRes] = await Promise.all([
@@ -3417,7 +3421,9 @@ async function renderStudio() {
   const fmtD = (iso) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   $app.innerHTML = `
     <div class="card"><h3>🎬 Video Studio — Notes & Questions from a Video</h3>
-      <p class="muted" style="margin:0 0 6px">Paste a YouTube lesson link. The AI will watch the video and prepare chapter-wise notes, MCQs, short &amp; long questions and flashcards. Every MCQ answer is double-checked by a second AI pass — doubtful ones are flagged 🚩 for you to verify.</p>
+      ${isStaff()
+        ? `<p class="muted" style="margin:0 0 6px">Paste a YouTube lesson link. The AI will watch the video and prepare chapter-wise notes, MCQs, short &amp; long questions and flashcards. Every MCQ answer is double-checked by a second AI pass — doubtful ones are flagged 🚩 for you to verify.</p>`
+        : `<p class="muted" style="margin:0 0 6px">Apni padhai ke liye kisi bhi YouTube lesson ka link daalo — AI video dekhkar tumhare liye notes, MCQs, short &amp; long questions aur flashcards bana dega. Har MCQ ka jawab dusri AI jaanch se double-check hota hai — shak wala 🚩 se chinhit rahega. Ye material sirf <b>tumhari personal library</b> me rahega, class me kuch publish nahi hoga. Roz ki limit: <b>5 video</b>.</p>`}
       <label>YouTube Video Link</label><input id="vs_url" placeholder="https://www.youtube.com/watch?v=…">
       <label>Class</label><select id="vs_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
       <label>Subject</label><select id="vs_subject"><option value="">— None —</option>${subjects.map(s => `<option value="${s.id}">${esc(s.name)} (${esc(clsName(s.class_id))})</option>`).join("")}</select>
@@ -3430,7 +3436,7 @@ async function renderStudio() {
       <button class="gold" id="vs_gen" style="width:100%;margin-top:10px">🎬 Generate Study Material</button>
       <p class="muted" style="margin:8px 0 0">Generation usually takes 1–3 minutes for a full lesson video. Please keep this screen open.</p>
     </div>
-    <div class="card"><h3 style="margin:0">🗂️ My Library (${gens.length})</h3></div>
+    <div class="card"><h3 style="margin:0">🗂️ ${isStaff() ? "My Library" : "My Personal Library"} (${gens.length})</h3></div>
     ${gens.map(g => `
       <div class="card">
         <div style="font-weight:700;font-size:15.5px;line-height:1.45">🎬 ${esc(g.video_title || "YouTube Video")}</div>
@@ -3471,7 +3477,7 @@ async function renderStudio() {
     let si = 0; stageEl.textContent = stages[0]; stageEl.classList.remove("hidden");
     const timer = setInterval(() => { si = Math.min(si + 1, stages.length - 1); stageEl.textContent = stages[si]; }, 12000);
     try {
-      const { data, error } = await sb.functions.invoke("video-study", { body: { youtube_url: url, class_label, subject, chapter, language_mode, mcq_count, difficulty } });
+      const { data, error } = await sb.functions.invoke("video-study", { body: { youtube_url: url, class_label, subject, chapter, language_mode, mcq_count, difficulty, personal: !isStaff() } });
       if (error) {
         // Show the function's REAL error when it sent one; only a bare
         // transport failure (no response — timeout / network) gets the
@@ -3484,7 +3490,7 @@ async function renderStudio() {
         throw new Error(msg);
       }
       if (!data || !data.payload) throw new Error("The AI returned nothing — please try again.");
-      const payload = { ...data.payload, class_id, subject_id, chapter_id };
+      const payload = isStaff() ? { ...data.payload, class_id, subject_id, chapter_id } : { ...data.payload };
       const { data: row, error: insErr } = await sb.from("studio_generations").insert({
         user_id: me.id, youtube_url: url, video_title: payload.video_title || "YouTube Video",
         class_label, subject, chapter, language_mode, difficulty, payload,
@@ -3561,6 +3567,7 @@ function renderStudioResult() {
   const g = studioCurrent;
   if (!g) { renderStudio(); return; }
   const p = g.payload || {};
+  const personal = !!p.personal;
   const mcqs = p.mcqs || [];
   const doubtful = mcqs.filter(q => q.doubtful).length;
   const checked = mcqs.filter(q => q.verified).length;
@@ -3575,7 +3582,7 @@ function renderStudioResult() {
   } else if (studioTab === "mcqs") {
     const vnote = p.verify_status === "done"
       ? `<div class="card" style="padding:12px 16px"><b>🔍 Answer check:</b> ${checked} of ${mcqs.length} MCQs double-checked OK${doubtful ? ` • <span style="color:var(--bad)"><b>${doubtful} flagged 🚩 — please verify from the video before use</b></span>` : ""}${p.mcq_shortfall ? `<br><span class="muted">Note: ${p.mcq_shortfall} fewer MCQs than requested could be prepared from this video.</span>` : ""}</div>`
-      : `<div class="card" style="padding:12px 16px"><b>🔍 Answer check:</b> <span style="color:var(--bad)">The double-check could not run for this video — please review the answers yourself before giving them to students.</span></div>`;
+      : `<div class="card" style="padding:12px 16px"><b>🔍 Answer check:</b> <span style="color:var(--bad)">The double-check could not run for this video — please review the answers yourself ${personal ? "before studying from them" : "before giving them to students"}.</span></div>`;
     body = vnote + mcqs.map((q, i) => `
       <div class="card">
         <div style="font-weight:700;font-size:15.5px;line-height:1.5"><b>Q${i + 1}.</b> ${esc(q.question)}
@@ -3612,10 +3619,12 @@ function renderStudioResult() {
       <div class="row" style="margin-top:12px;flex-wrap:wrap">
         <button class="small" id="vs_paper">🖨️ Question Paper (PDF)</button>
         <button class="small light" id="vs_key">📄 Answer Key (PDF)</button>
-        <button class="small gold" id="vs_import">⬇ Import ${mcqs.length} MCQs to Question Bank</button>
-        <button class="small light" id="vs_savenotes">📗 Save Notes to Platform</button>
+        ${personal ? "" : `<button class="small gold" id="vs_import">⬇ Import ${mcqs.length} MCQs to Question Bank</button>
+        <button class="small light" id="vs_savenotes">📗 Save Notes to Platform</button>`}
       </div>
-      <p class="muted" style="margin:8px 0 0">Question Paper has no answers (for students); Answer Key has answers + explanations (for you). Use the browser's "Save as PDF" in the print window.</p>
+      ${personal
+        ? `<p class="muted" style="margin:8px 0 0">👤 Ye tumhara <b>personal study pack</b> hai — sirf tumhari library me hai, class me publish nahi hua. Print ke liye browser ke "Save as PDF" ka upyog karo.</p>`
+        : `<p class="muted" style="margin:8px 0 0">Question Paper has no answers (for students); Answer Key has answers + explanations (for you). Use the browser's "Save as PDF" in the print window.</p>`}
     </div>
     <div class="mtabs">${tabs.map(([k, l]) => `<button class="chip ${studioTab === k ? "on" : ""}" data-vtab="${k}">${l}</button>`).join("")}</div>
     ${body}`;
@@ -3624,7 +3633,8 @@ function renderStudioResult() {
   $app.querySelectorAll("[data-flash]").forEach(c => c.onclick = () => c.classList.toggle("on"));
   document.getElementById("vs_paper").onclick = () => studioPrint("paper");
   document.getElementById("vs_key").onclick = () => studioPrint("key");
-  document.getElementById("vs_import").onclick = async () => {
+  const vsImportBtn = document.getElementById("vs_import");
+  if (vsImportBtn) vsImportBtn.onclick = async () => {
     if (!p.class_id) return toast("No class was selected for this video — generate again with a class");
     if (!mcqs.length) return toast("No MCQs to import");
     if (!confirm(`Import ${mcqs.length} MCQs into the Question Bank (${g.class_label}${g.subject ? " • " + g.subject : ""})? They will be published for test-building.`)) return;
@@ -3640,7 +3650,8 @@ function renderStudioResult() {
     if (error) return toast("Error: " + error.message);
     toast(`✅ ${rows.length} MCQs added to the Question Bank`);
   };
-  document.getElementById("vs_savenotes").onclick = async () => {
+  const vsSaveBtn = document.getElementById("vs_savenotes");
+  if (vsSaveBtn) vsSaveBtn.onclick = async () => {
     if (!p.class_id) return toast("No class was selected for this video — generate again with a class");
     const bodyText = studioNotesBody(p);
     if (!bodyText) return toast("No notes to save for this video");
