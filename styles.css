@@ -752,3 +752,16 @@ input,select,textarea{font-size:16px}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{scroll-behavior:auto !important; animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important}
 }
+
+/* ==========================================================
+   v53 — UI PHASE 2 SHELL (ChatGPT blueprint, Muse-reviewed)
+   Inspection finding: the shell ALREADY matched the blueprint
+   (navy topbar + gold divider, floating tabbar, gold sidebar
+   active state) from the Master-Spec build. This block only
+   consolidates the final tabbar intent (supersedes an old
+   light-blue active rule left mid-file) and adds bottom
+   clearance for gesture-navigation phones. No layout change.
+   ========================================================== */
+#tabbar button{min-height:54px}
+#tabbar button.active{background:linear-gradient(140deg,var(--navy2),var(--navy)); color:#fff; box-shadow:0 6px 14px rgba(8,28,58,.3)}
+@media (max-width:899px){ body{padding-bottom:calc(96px + env(safe-area-inset-bottom))} }
