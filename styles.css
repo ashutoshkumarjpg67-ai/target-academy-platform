@@ -842,3 +842,21 @@ input,select,textarea{font-size:16px}
    staff shortcuts. Permissions and flows untouched.
    ========================================================== */
 .qa .ql{font-size:12.5px}
+
+/* ==========================================================
+   v62 — NOTE READING WIDTH FIX (user report 23 Oct: "Notes kholne par
+   ajeeb sa dikh raha hai, pure screen me fit nahi ho raha, side me jaa
+   raha hai"). Root cause, reproduced locally with the real Optics note:
+   the expanded note body rendered INSIDE the narrow list-row title
+   column (.stx, ~167px on a 390px phone) and an unbreakable separator
+   line (30 × "━" ≈ 298px) overflowed the card, dragging the layout
+   sideways. Fixes: (1) the body is now a full-width row of its own
+   (.sbody, flex 100%) under the title row; (2) .note-body wraps
+   unbreakable content anywhere instead of overflowing; (3) a page-level
+   overflow-x clip as a safety net so no single element can ever push
+   the whole app sideways again.
+   ========================================================== */
+.sitem{flex-wrap:wrap}
+.sitem .sbody{flex:0 0 100%; width:100%}
+.note-body{overflow-wrap:anywhere; max-width:100%}
+body{overflow-x:clip}

@@ -1312,13 +1312,13 @@ async function renderStudy() {
         <div class="stx" data-openrow="${x._t}:${x.id}">
           <div class="st-t">${esc(x.title)}</div>
           <div class="st-s">${kl}${dt ? " • " + dt : ""}${x.chapter_id ? " • अध्याय: " + esc(chapName(x.chapter_id)) : ""}${x.subject_id ? " • " + esc(subName(x.subject_id)) : ""}</div>
-          ${x._t === "note" && x.body && !inRecent ? `<div class="note-body hidden" id="sbody-${x.id}"></div>` : ""}
         </div>
         <div class="sacts">
           <button class="sact" data-bm="${x._t}:${x.id}" title="Bookmark">${isBm(x._t, x.id) ? "★" : "☆"}</button>
           ${x.file_path ? `<button class="sact" data-open="${x._t}:${x.id}" title="Open / Download">⬇</button>` : ""}
           ${!isDone(x._t, x.id) ? `<button class="sact" data-done="${x._t}:${x.id}" title="Marked as Read">✓</button>` : `<span class="sact isdone" title="Marked as Read">✓</span>`}
         </div>
+        ${x._t === "note" && x.body && !inRecent ? `<div class="note-body sbody hidden" id="sbody-${x.id}"></div>` : ""}
       </div>`;
     };
     const recentProg = (prog || []).filter(p => p.last_opened_at).sort((a, b) => new Date(b.last_opened_at) - new Date(a.last_opened_at)).slice(0, 3);
