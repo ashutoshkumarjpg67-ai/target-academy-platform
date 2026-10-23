@@ -780,3 +780,14 @@ input,select,textarea{font-size:16px}
 .stile .ssub{font-size:12px}
 .hero p{line-height:1.65}
 .motto{line-height:1.6}
+
+/* ==========================================================
+   v55 — UI PHASE 4 STUDY + TESTS LIST (blueprint, reviewed)
+   Chapter/test titles slightly stronger, meta text clearer,
+   study-row icon actions get a proper tap width.
+   Note-reading text (16.5px/1.85) already at blueprint level.
+   ========================================================== */
+.st-t{font-size:15.5px}
+.st-s{font-size:12.5px; color:#4a5a70}
+.item .s{color:#4a5a70}
+.sact{min-width:42px}
