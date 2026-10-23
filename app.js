@@ -1679,14 +1679,30 @@ let run = null; // live attempt runtime
 async function renderTests() {
   if (run) { renderRun(); return; }
   $app.innerHTML = `<div class="loading">Loading…</div>`;
-  const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }] = await Promise.all([
+  const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }, { data: chapters }] = await Promise.all([
     sb.from("tests").select("*").order("created_at", { ascending: false }),
     sb.from("test_attempts").select("*").eq("student_id", me.id).order("started_at", { ascending: false }),
     isStaff() ? sb.from("questions").select("*").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
     sb.from("subjects").select("*").order("sort_order"),
+    sb.from("chapters").select("*").order("sort_order"),
   ]);
   const attemptsOf = (tid) => (myAttempts || []).filter(a => a.test_id === tid);
-  if (tests) tests.sort((a, b) => (a.class_id || 0) - (b.class_id || 0));
+  // Arrange tests by chapter, not by creation date (user report 23 Oct:
+  // "Chapter arrange nahi hai" — the list showed Ch 5, 4, 3, 10, 9).
+  // Within a class the order is: the linked chapter's sort_order first;
+  // a test without a linked chapter falls back to the number in its own
+  // title ("Chapter 7"); unnumbered tests keep their order at the end.
+  // Subject grouping below preserves this order inside every subject.
+  const chapSortOf = (t) => {
+    const ch = (chapters || []).find(c => c.id === t.chapter_id);
+    if (ch && ch.sort_order) return +ch.sort_order;
+    const m = String(t.title || "").match(/chapter\s*(\d+)/i);
+    return m ? +m[1] : 9000;
+  };
+  if (tests) tests.sort((a, b) =>
+    (a.class_id || 0) - (b.class_id || 0) ||
+    chapSortOf(a) - chapSortOf(b) ||
+    String(a.created_at || "").localeCompare(String(b.created_at || "")));
   const testRow = (t) => {
     const mine = attemptsOf(t.id);
     const submitted = mine.filter(a => a.status !== "in_progress");
