@@ -685,8 +685,12 @@ async function renderManage() {
       <h3>🏫 Classes, Subjects & Chapters</h3>
       <p>This structure is the foundation of notes, materials, questions and tests.</p>
       ${(classes || []).map(c => `
-        <div class="item"><div><div class="t">${esc(c.name)}</div>
+        <div class="item"><div style="flex:1; min-width:0"><div class="t">${esc(c.name)}</div>
           <div class="s">${subsOf(c.id).map(s => `${esc(s.name)} (${chapsOf(s.id).length} ch)`).join(" • ") || "No subjects"}</div></div>
+          ${profile.role === "admin" ? `<div class="row" style="flex-wrap:nowrap; gap:6px">
+            <button class="light small" data-renclass="${c.id}">Rename</button>
+            <button class="danger small" data-delclass="${c.id}">Delete</button>
+          </div>` : ""}
         </div>
         ${subsOf(c.id).map(s => `<div class="item" style="padding-left:18px"><div><div class="t" style="font-size:14px">📖 ${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</div>
           <div class="s">${chapsOf(s.id).map(ch => esc(ch.name)).join(", ") || "No chapters"}</div></div>
@@ -714,6 +718,49 @@ async function renderManage() {
     if (error) return toast("Error: " + error.message);
     toast("Class added ✅"); renderManage();
   };
+  // Class rename / delete (admin only). Deleting a class CASCADES in the
+  // database (subjects, chapters, notes, materials, questions, tests,
+  // enrollments, fee plans...) — verified live 23 Oct — so the delete
+  // flow first shows live counts of everything that will go with it and,
+  // for a non-empty class, makes the admin type the class name before
+  // anything is removed. Fee RECORDS survive (their class link is set
+  // to null by the database); student accounts are never touched.
+  $app.querySelectorAll("[data-renclass]").forEach(b => b.onclick = async () => {
+    const c = (classes || []).find(x => x.id === +b.dataset.renclass); if (!c) return;
+    const name = prompt("Class ka naya naam likho:", c.name);
+    if (!name || !name.trim() || name.trim() === c.name) return;
+    const { error } = await sb.from("classes").update({ name: name.trim() }).eq("id", c.id);
+    if (error) return toast("Error: " + error.message);
+    toast("Class renamed ✅"); renderManage();
+  });
+  $app.querySelectorAll("[data-delclass]").forEach(b => b.onclick = async () => {
+    const c = (classes || []).find(x => x.id === +b.dataset.delclass); if (!c) return;
+    const cnt = async (t) => { const { count } = await sb.from(t).select("id", { count: "exact", head: true }).eq("class_id", c.id); return count || 0; };
+    const [enr, subs, notesN, mats, qs, testsN, plans] = await Promise.all([
+      cnt("enrollments"), cnt("subjects"), cnt("notes"), cnt("materials"), cnt("questions"), cnt("tests"), cnt("fee_plans"),
+    ]);
+    const parts = [];
+    if (enr) parts.push(enr + " students ki enrollment");
+    if (subs) parts.push(subs + " subjects (unke saare chapters ke saath)");
+    if (notesN) parts.push(notesN + " notes");
+    if (mats) parts.push(mats + " materials");
+    if (qs) parts.push(qs + " questions");
+    if (testsN) parts.push(testsN + " tests (students ke saare attempts ke saath)");
+    if (plans) parts.push(plans + " fee plans");
+    const warn = parts.length
+      ? `"${c.name}" delete karne se ye sab BHI hamesha ke liye mit jayega:\n• ` + parts.join("\n• ") + `\n\nFees ke payment records nahi mitege — sirf unka class wala link katega. Students ke account bhi nahi mitege.`
+      : `"${c.name}" abhi khali hai — isme kuch nahi hai.`;
+    if (!confirm(warn + `\n\nPakka delete karein? Ye wapas nahi aayega.`)) return;
+    if (parts.length) {
+      const typed = prompt(`Aakhri suraksha-jaanch:\nPakka karne ke liye class ka naam bilkul waisa hi likho —\n${c.name}`);
+      if (typed === null) return;
+      if (typed.trim() !== c.name) return toast("Naam match nahi hua — delete rok diya");
+    }
+    const { data: gone, error } = await sb.from("classes").delete().eq("id", c.id).select();
+    if (error) return toast("Error: " + error.message);
+    if (!gone || !gone.length) return toast("Delete nahi hua — dobara try karo");
+    toast("Class deleted 🗑️"); renderManage();
+  });
   $app.querySelectorAll("[data-addsub]").forEach(b => b.onclick = async () => {
     const name = prompt("Subject name (English):"); if (!name) return;
     const name_hi = prompt("Subject name (Hindi) — you may leave it blank:") || null;
