@@ -1865,6 +1865,52 @@ async function previewTest(test) {
 }
 
 /* ----- Taking a test ----- */
+/* Shuffle (v50, owner's order): every attempt gets its own question order and
+   option order. Seeded by the attempt id, so resuming the SAME attempt keeps
+   the same arrangement, while every new attempt is arranged differently.
+   Options keep their original keys, so saved answers and scoring are unaffected;
+   only the display order (and the letter badge, which follows position) changes. */
+function attemptRng(seed) {
+  let t = (Number(seed) || 1) >>> 0;
+  return function () {
+    t += 0x6D2B79F5;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffleArr(arr, rnd) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function shuffleForAttempt(qs, attemptId) {
+  const rnd = attemptRng((Number(attemptId) * 2654435761) % 4294967296 || 1);
+  const out = (qs || []).map(q => {
+    const c = { ...q };
+    if (Array.isArray(q.options) && q.options.length > 1 &&
+        (q.qtype === "mcq_single" || q.qtype === "mcq_multi" || q.qtype === "true_false")) {
+      c.options = shuffleArr(q.options, rnd);
+    }
+    return c;
+  });
+  const keyOf = (q) => isMatchQ(q) ? "match"
+    : (q.qtype === "mcq_single" || q.qtype === "mcq_multi") ? "mcq"
+    : q.qtype === "fill_blank" ? "fill"
+    : q.qtype === "true_false" ? "tf" : "short";
+  const res = [];
+  let i = 0;
+  while (i < out.length) {
+    let j = i;
+    while (j < out.length && keyOf(out[j]) === keyOf(out[i])) j++;
+    res.push(...shuffleArr(out.slice(i, j), rnd));
+    i = j;
+  }
+  return res;
+}
 async function startTest(test, myAttempts) {
   let attempt = (myAttempts || []).find(a => a.status === "in_progress");
   if (!attempt) {
@@ -1883,7 +1929,7 @@ async function startTest(test, myAttempts) {
     if (sj) subjName = sj.name + (sj.name_hi ? " • " + sj.name_hi : "");
   }
   run = {
-    test, attempt, qs: qs || [], idx: 0, screen: "run", subjName,
+    test, attempt, qs: shuffleForAttempt(qs || [], attempt.id), idx: 0, screen: "run", subjName,
     answers: new Map((saved || []).map(r => [r.question_id, r.answer])),
     review: new Set((saved || []).filter(r => r.marked_for_review).map(r => r.question_id)),
     feedback: new Map(),
@@ -2010,13 +2056,13 @@ function qBlockHTML(q, n) {
   const cur = (run.answers.get(q.question_id) || [])[0];
   const opts = Array.isArray(q.options) ? q.options : [];
   if (q.qtype === "mcq_single" || q.qtype === "mcq_multi" || q.qtype === "true_false") {
-    const keyLabel = (o) => esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : o.key);
+    const keyLabel = (o, oi) => esc(o.key === "true" ? "✓" : o.key === "false" ? "✗" : ("ABCDEFGH"[oi] || o.key));
     let body;
     if (fb) {
       const rightKey = Array.isArray(fb.correct_answer) ? String(fb.correct_answer[0]) : null;
-      body = `<div class="${q.qtype === "true_false" ? "tfrow" : ""}">` + opts.map(o => `<button class="option ${String(o.key) === rightKey ? "right" : String(cur) === String(o.key) ? "wrong" : ""}" disabled><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("") + `</div>` + explHTML(fb);
+      body = `<div class="${q.qtype === "true_false" ? "tfrow" : ""}">` + opts.map((o, oi) => `<button class="option ${String(o.key) === rightKey ? "right" : String(cur) === String(o.key) ? "wrong" : ""}" disabled><span class="k">${keyLabel(o, oi)}</span>${esc(o.text)}</button>`).join("") + `</div>` + explHTML(fb);
     } else {
-      body = `<div class="${q.qtype === "true_false" ? "tfrow" : ""}">` + opts.map(o => `<button class="option ${String(cur) === String(o.key) ? "sel" : ""}" data-optq="${q.question_id}" data-opt="${esc(o.key)}"><span class="k">${keyLabel(o)}</span>${esc(o.text)}</button>`).join("") + `</div>`;
+      body = `<div class="${q.qtype === "true_false" ? "tfrow" : ""}">` + opts.map((o, oi) => `<button class="option ${String(cur) === String(o.key) ? "sel" : ""}" data-optq="${q.question_id}" data-opt="${esc(o.key)}"><span class="k">${keyLabel(o, oi)}</span>${esc(o.text)}</button>`).join("") + `</div>`;
     }
     return `<div class="qblock" id="qq-${q.question_id}" data-n="${n}"><div class="qline"><span class="qno">${n}.</span> ${esc(q.question_text)} <span class="qmarks">[${q.marks}]</span></div>${body}</div>`;
   }
@@ -2037,7 +2083,7 @@ function matchRowHTML(q, n) {
     <div class="mlabel"><span class="qno">${n}.</span> ${esc(matchLabel(q))}</div>
     <select data-matchq="${q.question_id}" class="${fb ? (fb.is_correct ? "mok" : "mbad") : ""}" ${fb ? "disabled" : ""}>
       <option value="">Choose</option>
-      ${opts.map(o => `<option value="${esc(o.key)}" ${String(cur) === String(o.key) ? "selected" : ""}>(${esc(String(o.key).toLowerCase())}) ${esc(o.text)}</option>`).join("")}
+      ${opts.map((o, oi) => `<option value="${esc(o.key)}" ${String(cur) === String(o.key) ? "selected" : ""}>(${"abcdefgh"[oi] || esc(String(o.key).toLowerCase())}) ${esc(o.text)}</option>`).join("")}
     </select>
     ${fb ? explHTML(fb) : ""}
   </div>`;
