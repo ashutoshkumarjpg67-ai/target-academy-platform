@@ -2725,7 +2725,7 @@ function speakText(text, btn) {
   if (!("speechSynthesis" in window)) { toast("Listening isn't supported in this browser"); return; }
   if (speechSynthesis.speaking && _sayBtn === btn) { speechSynthesis.cancel(); return; }
   speechSynthesis.cancel();
-  const clean = (text || "").replace(/[*#_`>~]/g, "").slice(0, 1200);
+  const clean = (text || "").replace(/\$+/g, "").replace(/\\[a-zA-Z]+/g, " ").replace(/[*#_`>~{}]/g, "").slice(0, 1200);
   if (!clean.trim()) return;
   const u = new SpeechSynthesisUtterance(clean);
   u.lang = "hi-IN"; u.rate = 0.98;
@@ -2764,6 +2764,65 @@ async function photoToBase64(file, maxDim = 1024) {
   return { data: String(url).split(",")[1] || "", mimeType: "image/jpeg", url: String(url) };
 }
 
+/* AI answer formatter (v51, owner's complaint: raw $...$, ** and \xrightarrow
+   symbols were showing in AI answers). Gemini replies arrive as markdown +
+   LaTeX; students must see clean readable text like ChatGPT/Gemini show.
+   Everything is escaped FIRST — only this formatter's own tags are added.
+   Converts: **bold**, headings, • bullets, and math-lite (sub/superscripts,
+   arrows, fractions, Greek letters, chemical formulas like C_6H_{12}O_6). */
+function aiMath(t) {
+  t = t.replace(/\\text\{([^}]*)\}/g, "$1").replace(/\\mathrm\{([^}]*)\}/g, "$1").replace(/\\mathbf\{([^}]*)\}/g, "$1");
+  t = t.replace(/\\xrightarrow\s*(?:\[([^\]]*)\])?\s*(?:\{([^}]*)\})?/g,
+    (m, below, above) => { const parts = [below, above].filter(x => x && x.trim()); return parts.length ? ` → (${parts.join(", ")}) ` : " → "; });
+  t = t.replace(/\\rightarrow/g, "→").replace(/\\leftarrow/g, "←").replace(/\\to(?![a-zA-Z])/g, "→");
+  t = t.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)");
+  t = t.replace(/\\sqrt\{([^}]*)\}/g, "√($1)").replace(/\\sqrt/g, "√");
+  t = t.replace(/_\{([^}]*)\}/g, "<sub>$1</sub>").replace(/\^\{([^}]*)\}/g, "<sup>$1</sup>");
+  t = t.replace(/_([A-Za-z0-9])/g, "<sub>$1</sub>").replace(/\^([A-Za-z0-9+\-])/g, "<sup>$1</sup>");
+  const sym = { "\\alpha": "α", "\\beta": "β", "\\gamma": "γ", "\\delta": "δ", "\\Delta": "Δ", "\\theta": "θ", "\\lambda": "λ", "\\mu": "μ", "\\pi": "π", "\\sigma": "σ", "\\omega": "ω", "\\Omega": "Ω", "\\times": "×", "\\div": "÷", "\\pm": "±", "\\le": "≤", "\\ge": "≥", "\\neq": "≠", "\\ne": "≠", "\\approx": "≈", "\\infty": "∞", "\\degree": "°", "\\circ": "°", "\\cdot": "·" };
+  for (const k in sym) t = t.split(k).join(sym[k]);
+  t = t.replace(/\\[,;:! ]/g, " ").replace(/\\([A-Za-z]+)/g, "$1").replace(/\\/g, "");
+  return t;
+}
+function aiInline(s) {
+  s = s.replace(/\$\$([^$]+)\$\$/g, (m, inner) => aiMath(inner));
+  s = s.replace(/\$([^$]+)\$/g, (m, inner) => aiMath(inner));
+  s = aiMath(s);
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/__([^_]+)__/g, "<b>$1</b>");
+  s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<i>$2</i>");
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return s;
+}
+function aiHTML(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const out = [];
+  let inCode = false, codeBuf = [], listOpen = false;
+  const closeList = () => { if (listOpen) { out.push("</div>"); listOpen = false; } };
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      if (inCode) { out.push(`<pre class="ai-code">${esc(codeBuf.join("\n"))}</pre>`); codeBuf = []; inCode = false; }
+      else { closeList(); inCode = true; }
+      continue;
+    }
+    if (inCode) { codeBuf.push(line); continue; }
+    const t = line.trim();
+    if (!t) { closeList(); continue; }
+    const h = t.match(/^#{1,4}\s+(.*)$/);
+    if (h) { closeList(); out.push(`<div class="ai-h">${aiInline(esc(h[1]))}</div>`); continue; }
+    const b = t.match(/^[•\-\*]\s+(.*)$/);
+    if (b) {
+      if (!listOpen) { out.push('<div class="ai-list">'); listOpen = true; }
+      out.push(`<div class="ai-li">• ${aiInline(esc(b[1]))}</div>`);
+      continue;
+    }
+    closeList();
+    out.push(`<div class="ai-p">${aiInline(esc(t))}</div>`);
+  }
+  if (inCode && codeBuf.length) out.push(`<pre class="ai-code">${esc(codeBuf.join("\n"))}</pre>`);
+  closeList();
+  return out.join("");
+}
+
 async function renderTutor() {
   if (!isStaff() && !tutorWeakLoaded) {
     tutorWeakLoaded = true;
@@ -2783,7 +2842,7 @@ async function renderTutor() {
   const chips = ["Explain refraction of light", "What is photosynthesis?", "Why do the angles of a triangle add up to 180°?", "Explain the water cycle", "How do I solve x + 5 = 12?"];
   const bubble = (m, i) => m.role === "me"
     ? `<div class="chatrow me"><div class="bubble me">${m.img ? `<img src="${m.img}" alt="Question photo" style="max-width:190px; width:100%; border-radius:10px; display:block; margin-bottom:${m.text ? "6px" : "0"}">` : ""}${esc(m.text)}</div></div>`
-    : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${esc(m.text).replace(/\n/g, "<br>")}<br><button type="button" class="light small" data-sayidx="${i}" style="margin-top:6px">🔊 Listen</button></div></div>`;
+    : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${aiHTML(m.text)}<br><button type="button" class="light small" data-sayidx="${i}" style="margin-top:6px">🔊 Listen</button></div></div>`;
   $app.innerHTML = `
     <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
       <p class="muted" style="margin:6px 0 0">Ask any study question — type it, tap 🎤 to speak, or tap 📷 Photo to ask from a photo of your book or notebook. The AI Tutor will explain it step-by-step in easy Hindi.</p>
@@ -2885,7 +2944,7 @@ async function renderDoubts() {
       </div>
       <p class="muted" style="margin:6px 0 0">${staffView ? `👤 ${esc(nameMap[d.student_id] || "Student")} • ` : ""}${d.class_id ? esc(clsName(d.class_id)) + " • " : ""}${d.subject_id ? esc(subName(d.subject_id)) + " • " : ""}${new Date(d.created_at).toLocaleString("en-IN")}</p>
       ${d.answer_text ? `<div class="expl-box" style="margin-top:10px">💬 <b>Answer${staffView && d.answered_by && nameMap[d.answered_by] ? ` — ${esc(nameMap[d.answered_by])}` : ""}:</b><br><span style="white-space:pre-wrap">${esc(d.answer_text)}</span>${d.answered_at ? `<br><span class="muted">${new Date(d.answered_at).toLocaleString("en-IN")}</span>` : ""}<br><button type="button" class="light small" data-saydoubt="${d.id}" data-kind="ans" style="margin-top:6px">🔊 Listen</button></div>` : ""}
-      ${d.ai_answer ? `<div class="expl-box" style="margin-top:10px; background:#eef4ff; border-color:#9db9e8">🤖 <b>AI's Answer:</b><br><span style="white-space:pre-wrap">${esc(d.ai_answer)}</span><br><button type="button" class="light small" data-saydoubt="${d.id}" data-kind="ai" style="margin-top:6px">🔊 Listen</button></div>`
+      ${d.ai_answer ? `<div class="expl-box" style="margin-top:10px; background:#eef4ff; border-color:#9db9e8">🤖 <b>AI's Answer:</b><br>${aiHTML(d.ai_answer)}<br><button type="button" class="light small" data-saydoubt="${d.id}" data-kind="ai" style="margin-top:6px">🔊 Listen</button></div>`
         : `<div style="margin-top:10px"><button class="light small" data-dai="${d.id}">🤖 Get AI Answer</button></div>`}
       ${staffView && d.status === "open" ? `
         <label style="margin-top:10px">Write your answer</label>

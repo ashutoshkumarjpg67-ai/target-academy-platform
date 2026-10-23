@@ -712,3 +712,13 @@ button.listening{background:#d92d20!important; color:#fff!important; border-colo
 /* ---------- v49: AI Tutor photo question preview ---------- */
 .tut-photo{display:flex; align-items:center; gap:10px; margin-bottom:10px; background:#fbf7ea; border:1.5px dashed var(--gold); border-radius:12px; padding:8px}
 .tut-photo img{width:52px; height:52px; object-fit:cover; border-radius:9px; flex:0 0 auto}
+
+/* AI answer formatting (v51) */
+.bubble.ai .ai-p{margin:0 0 6px}
+.bubble.ai .ai-p:last-child{margin-bottom:0}
+.ai-h{font-weight:800;margin:9px 0 4px;color:var(--navy)}
+.ai-li{margin:3px 0 3px 8px}
+.ai-code{background:#0b2a5b;color:#eaf0ff;padding:8px 10px;border-radius:8px;overflow-x:auto;font-size:13px;white-space:pre-wrap}
+.bubble.ai code,.expl-box code{background:#e2e8f8;padding:0 4px;border-radius:4px;font-size:92%}
+.expl-box .ai-p{margin:0 0 6px}
+.expl-box .ai-p:last-child{margin-bottom:0}
