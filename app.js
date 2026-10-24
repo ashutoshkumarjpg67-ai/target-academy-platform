@@ -2710,6 +2710,45 @@ function speakText(text, btn) {
   speechSynthesis.speak(u);
 }
 
+/* ---------------- AI Edge Function calls (shared retry) ----------------
+   The AI features (ask-tutor, answer-doubt) run Gemini inside Supabase
+   Edge Functions. When Gemini is overloaded the function answers 503,
+   and a shaky connection can drop or hang the request — until now the
+   app made exactly ONE attempt with no timeout, so every brief 503 was
+   a dead end for the student. invokeAI keeps the same { data, error }
+   shape as sb.functions.invoke but retries transient failures (network
+   drop, timeout, HTTP 408/429/5xx) up to 3 times with backoff. Real
+   errors (400/401/403/404 — bad request, no permission, daily limit)
+   return at once, never retried or hidden. NOT used by video-study:
+   generation there legitimately takes 1–3 minutes. */
+async function invokeAI(name, body, { timeoutMs = 45000, tries = 3 } = {}) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let last = { data: null, error: new Error("AI call did not run") };
+  for (let i = 0; i < tries; i++) {
+    if (i) await sleep(1200 * Math.pow(2, i - 1));   // 1.2s, then 2.4s
+    let timer = null;
+    try {
+      last = await Promise.race([
+        sb.functions.invoke(name, { body }),
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error("ai-timeout")), timeoutMs); }),
+      ]);
+    } catch (e) {
+      last = { data: null, error: e };
+    } finally { if (timer) clearTimeout(timer); }
+    if (!last.error) return last;
+    const err = last.error;
+    const status = err && err.context && typeof err.context.status === "number" ? err.context.status : null;
+    const transient = !!err && (
+      err.name === "FunctionsFetchError" || err.name === "FunctionsRelayError"
+      || err.message === "ai-timeout"
+      || (status !== null && [408, 429, 500, 502, 503, 504].includes(status))
+      || (status === null && /failed to send|fetch|network|timed out|timeout/i.test(err.message || ""))
+    );
+    if (!transient) return last;
+  }
+  return last;
+}
+
 /* ---------------- AI Tutor ---------------- */
 let tutorChat = [];   // {role:'me'|'ai', text} — kept while the app stays open
 let tutorBusy = false;
@@ -2855,9 +2894,9 @@ async function renderTutor() {
     const outQ = tutorMode === "normal" ? askQ : (modePrefix[tutorMode] || "") + askQ;
     const body = { question: outQ, history };
     if (photo) body.image = { data: photo.data, mimeType: "image/jpeg" };
-    const { data, error } = await sb.functions.invoke("ask-tutor", { body });
+    const { data, error } = await invokeAI("ask-tutor", body);
     tutorBusy = false;
-    if (error || !data?.answer) tutorChat.push({ role: "ai", text: "Sorry, I couldn't prepare an answer right now. Please try again in a little while." });
+    if (error || !data?.answer) tutorChat.push({ role: "ai", text: "Sorry, the AI is very busy right now — I tried a few times but couldn't get an answer. Please ask again in a little while. 🙏" });
     else tutorChat.push({ role: "ai", text: data.answer });
     renderTutor();
   };
@@ -2927,7 +2966,7 @@ async function renderDoubts() {
   const wireAI = () => {
     $app.querySelectorAll("[data-dai]").forEach(b => b.onclick = async () => {
       b.disabled = true; b.textContent = "🤖 Getting the AI answer…";
-      const { error } = await sb.functions.invoke("answer-doubt", { body: { doubt_id: +b.dataset.dai } });
+      const { error } = await invokeAI("answer-doubt", { doubt_id: +b.dataset.dai });
       if (error) toast("The AI answer couldn't be fetched right now — Sir will answer");
       renderDoubts();
     });
@@ -3002,7 +3041,7 @@ async function renderDoubts() {
     }).select().single();
     if (error) { err.textContent = error.message; return; }
     toast("Doubt sent ❓ — 🤖 Getting the AI answer…");
-    if (nd) { try { await sb.functions.invoke("answer-doubt", { body: { doubt_id: nd.id } }); } catch (_) { /* AI न आए तो Sir जवाब देंगे */ } }
+    if (nd) { try { await invokeAI("answer-doubt", { doubt_id: nd.id }); } catch (_) { /* AI न आए तो Sir जवाब देंगे */ } }
     renderDoubts();
   };
   const dbmic = document.getElementById("db_mic");
