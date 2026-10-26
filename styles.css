@@ -860,3 +860,116 @@ input,select,textarea{font-size:16px}
 .sitem .sbody{flex:0 0 100%; width:100%}
 .note-body{overflow-wrap:anywhere; max-width:100%}
 body{overflow-x:clip}
+
+/* ==========================================================
+   PHASE 3 — SMALL SCREENS (320 / 360 / 390px)
+   CSS only. No markup, text, heading language, button text,
+   data flow or query changed. Premium navy/gold untouched.
+   Audit findings (width budget at 320px: main inner = 292px,
+   card inner = 256px):
+   (a) Staff test rows + study rows used inline flex-wrap:nowrap
+       with up to 5 action buttons (~365px) — buttons were cut
+       off at the card edge (body overflow-x:clip hid them).
+   (b) .qa-grid 4 columns: longest label word ("Attendance",
+       ~70px) forced tracks wider than the 65px column.
+   (c) .stats fee amounts (e.g. ₹1,25,000 at 23px, ~114px) wider
+       than the ~90px stat column.
+   (d) MCQ option pairs (two direct-child inputs in .row) kept
+       their ~150px intrinsic min-width and overflowed the card.
+   (e) .item/.frow/.act/.subj text columns had no min-width:0,
+       so a long name/word squeezed the action column off-card.
+   (f) Home .stile fee values (19.5px, nowrap + ellipsis) were
+       truncated for 6-digit amounts ("₹1,25…" instead of full).
+   (g) Topbar brand had no min-width:0, so bell + Logout were
+       squeezed on 320px phones.
+   (h) Small icon buttons (.sact 34px) below the 44px touch
+       target; tutor form bottom edge sat 2px under the tabbar.
+   Checked and NOT broken (no change): bottom tabbar (4 student
+   / 5 staff buttons fit 288px inner at 320px), 7-col calendar
+   (single-char day labels, ~32px cells), pagehead (title wraps,
+   icon fixed), palette bottom-sheet (100% width), lightbox
+   (94vw cap), print-only results <table> (never on screen),
+   .filter-row (already 2-col under 480px), .tfrow options and
+   .mrow selects (already wrap/stack), .testbar (legacy CSS,
+   unused by app.js templates — no rule added for it).
+   ========================================================== */
+/* Flex children must be allowed to shrink below their content */
+.item > *, .frow > *, .act > *, .subj > *, .drow > *, .sitem > *,
+.hubrow > *, .ring-wrap > *{min-width:0}
+/* Long words/amounts wrap instead of pushing the card sideways */
+.item .t, .item .s, .frow .ft, .frow .fs, .act .at, .act .as,
+.subj .st, .subj .ss, .hub-t, .hub-d, .drow .dv, .st-t, .st-s,
+.menu-item{overflow-wrap:anywhere}
+/* Direct-child form controls in .row must shrink (div-wrapped
+   field groups are intentionally untouched — they already wrap
+   to stacked lines, e.g. the staff fee-plan row) */
+.row > input, .row > select, .row > textarea{min-width:0}
+/* Grid tiles must shrink below their longest word */
+.qa, .stat, .stile{min-width:0}
+.qa .ql, .stat .l, .stat .n{overflow-wrap:anywhere}
+
+@media (max-width:390px){
+  main{padding:16px 12px}
+  .card{padding:16px}
+  .hero{padding:20px 16px}
+  .hero h1{font-size:22px}
+  .pagehead{padding:12px 14px}
+  .ph-ic{width:42px; height:42px; font-size:20px}
+  .ph-t{font-size:17px}
+  /* (g) Topbar: smaller brand, brand shrinks first, buttons keep size */
+  #topbar{padding:10px 12px}
+  #topbar .logo{width:38px; height:38px; border-radius:11px}
+  #topbar .brand{flex:1; min-width:0}
+  #topbar button{flex:0 0 auto}
+  .brand-name{font-size:16px}
+  .brand-sub{font-size:10.5px}
+  /* (a) Inline nowrap action rows wrap on phones (needs !important
+     to beat the inline style="flex-wrap:nowrap" in app.js) */
+  .row{flex-wrap:wrap !important}
+  /* (b) Quick-action grid: tighter gaps/padding, smaller icons */
+  .qa-grid, .qa-grid3{gap:8px}
+  .qa{padding:10px 2px}
+  .qa .qi{width:40px; height:40px; font-size:19px}
+  /* (c) Stat columns: tighter padding, smaller amounts */
+  .stats{gap:8px}
+  .stat{padding:10px 4px}
+  .stat .n{font-size:19px}
+  .stat .si{width:36px; height:36px; font-size:17px}
+  .rev-stats .stat .n{font-size:18px}
+  /* (f) Home tiles: full fee values instead of "₹1,25…" */
+  .stile{padding:12px}
+  .stile .sv{font-size:17px}
+  /* (h) Touch targets + tutor form clearance above the tabbar */
+  .sact{width:40px; height:40px}
+  .chip{min-height:44px}
+  #tutorForm{bottom:86px}
+  /* Tutor input gets its own line; Photo/Mic/Ask share the next
+     (!important beats the inline style="flex:1" on #tutorInput) */
+  #tutorForm .row #tutorInput{flex:1 1 100% !important}
+  /* Login row: Remember + Forgot stack instead of squeezing */
+  .auth-row{flex-wrap:wrap}
+  .auth-card{padding:16px}
+  /* Splash: brand name fits one line on narrow phones */
+  .sp-name{font-size:26px}
+  .sp-logo{width:88px; height:88px}
+}
+
+@media (max-width:360px){
+  .brand-sub{font-size:10px}
+  .stat .n{font-size:18px}
+  .stile .sv{font-size:16.5px}
+  .hero h1{font-size:21px}
+  .qa .ql{font-size:12px}
+}
+
+@media (max-width:320px){
+  main{padding:14px 10px}
+  .card{padding:14px}
+  .stat .n{font-size:17px}
+  .stile .sv{font-size:16px}
+  .qa-grid, .qa-grid3{gap:6px}
+  .qa .qi{width:38px; height:38px}
+  .brand-name{font-size:15px}
+  .sp-name{font-size:24px}
+  #tabbar button{font-size:11px; padding:8px 1px}
+}
