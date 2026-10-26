@@ -381,7 +381,7 @@ async function renderHome() {
       sb.from("tests").select("*").eq("status", "published"),
       sb.from("assignments").select("*"),
       sb.from("submissions").select("assignment_id,student_id").eq("student_id", me.id),
-      sb.from("fee_records").select("*"),
+      sb.from("fee_records").select("*").is("deleted_at", null),
     ]);
     const enrolledIds = (enr || []).map(e => e.class_id);
     let greetPhoto = null;
@@ -460,12 +460,12 @@ async function renderHome() {
     sb.from("profiles").select("id,full_name"),
     sb.from("doubts").select("*", { count: "exact", head: true }).eq("status", "open"),
     sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
-    sb.from("fee_records").select("paid_amount").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
+    sb.from("fee_records").select("paid_amount").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()).is("deleted_at", null),
     sb.from("attendance").select("status").eq("on_date", todayISO),
     sb.from("timetable_entries").select("*"),
     sb.from("subjects").select("id,name,class_id"),
-    sb.from("fee_records").select("amount,paid_amount"),
-    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(3),
+    sb.from("fee_records").select("amount,paid_amount").is("deleted_at", null),
+    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(3).is("deleted_at", null),
   ]);
   const nameOf = (id) => (profs || []).find(p => p.id === id)?.full_name || "Student";
   let greetPhoto = null;
@@ -730,7 +730,7 @@ async function renderFees() {
   if (!host) return;
   const [{ data: plans }, { data: records }, { data: studs }, { data: enrAll }] = await Promise.all([
     sb.from("fee_plans").select("*"),
-    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(60),
+    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(60).is("deleted_at", null),
     sb.from("profiles").select("id,full_name,phone").eq("role", "student"),
     sb.from("enrollments").select("*"),
   ]);
@@ -848,9 +848,10 @@ async function renderFees() {
     if (!rec) return;
     const warn = +rec.paid_amount > 0 ? `\n\n⚠️ Warning: ₹${rec.paid_amount} is already PAID on this record — deleting will also remove that payment record!` : "";
     if (!confirm(`Delete this fee record?\n\n${nameOf(rec.student_id)} — ${rec.fee_type} (${rec.period}) • ₹${rec.amount}${warn}\n\nThis cannot be undone.`)) return;
-    const { data: del, error } = await sb.from("fee_records").delete().eq("id", rec.id).select("id");
+    const reason = prompt("Deletion reason (required — saved to the audit log):");
+    if (!reason || !reason.trim()) return;
+    const { error } = await sb.rpc("soft_delete_fee_record", { p_fee_record_id: rec.id, p_reason: reason.trim() });
     if (error) return toast("Error: " + error.message);
-    if (!del || !del.length) return toast("Could not delete — permission issue");
     toast("Fee record deleted 🗑"); renderFees();
   });
   document.getElementById("feesCsvBtn").onclick = () => {
@@ -1485,7 +1486,7 @@ async function renderStudy() {
 let feesTab = "monthly"; // v44: student fees tabs (monthly | history)
 async function renderFeesStudent() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
-  const { data: records } = await sb.from("fee_records").select("*").order("created_at", { ascending: false });
+  const { data: records } = await sb.from("fee_records").select("*").order("created_at", { ascending: false }).is("deleted_at", null);
   const recs = records || [];
   let nameOf = () => "";
   if (profile.role === "parent" && recs.length) {
@@ -2351,7 +2352,7 @@ async function renderMore() {
   }
   let myFees = [];
   if (profile.role === "student" || profile.role === "parent") {
-    const { data } = await sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(12);
+    const { data } = await sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(12).is("deleted_at", null);
     myFees = data || [];
   }
   let myPhoto = null;
@@ -3141,7 +3142,7 @@ async function renderHomework() {
           const f = await prepareUploadFile(f0);
           const ext = (f.name.split(".").pop() || "bin").toLowerCase();
           file_path = `${me.id}/hw-${a.id}-${Date.now()}.${ext}`;
-          const { error: ue } = await sb.storage.from("avatars").upload(file_path, f, { upsert: true });
+          const { error: ue } = await sb.storage.from("submissions").upload(file_path, f, { upsert: true });
           if (ue) throw ue;
         }
         const { error } = await sb.from("submissions").upsert({
@@ -3154,7 +3155,7 @@ async function renderHomework() {
       } catch (e) { err.textContent = e.message; }
     };
   }
-  $app.querySelectorAll("[data-hwfile]").forEach(b => b.onclick = () => openStoredFile("avatars", b.dataset.hwfile));
+  $app.querySelectorAll("[data-hwfile]").forEach(b => b.onclick = () => openStoredFile("submissions", b.dataset.hwfile));
 }
 
 /* ---------------- Attendance ---------------- */
