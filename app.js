@@ -216,7 +216,7 @@ async function boot() {
   const { data } = await sb.auth.getUser();
   me = data?.user || null;
   if (!me) { renderAuth("login"); return; }
-  const { data: prof, error } = await sb.from("profiles").select("id,full_name,role,phone,photo_path,created_at").eq("id", me.id).single();
+  const { data: prof, error } = await sb.from("profiles").select("id,full_name,role,phone,photo_path,roll_number,session,created_at").eq("id", me.id).single();
   if (error || !prof) { $app.innerHTML = `<div class="card"><h3>Profile not found</h3><p>Please contact the Academy.</p></div>`; return; }
   profile = prof;
   if (pendingRoleHint) {
@@ -726,6 +726,25 @@ async function renderFees() {
   // (previously every student profile was downloaded).
   const feeStudIds = [...new Set((records || []).map(r => r.student_id).filter(Boolean))];
   const { data: studs } = feeStudIds.length ? await sb.from("profiles").select("id,full_name,phone").in("id", feeStudIds) : { data: [] };
+  // Phase 4: fee_payments ledger for exactly the records shown
+  // (RLS scopes it: admin all, teachers taught classes only).
+  const feeRecIds = (records || []).map(r => r.id);
+  const { data: ledger } = feeRecIds.length ? await sb.from("fee_payments").select("id,fee_record_id,amount,received_by,note,created_at").in("fee_record_id", feeRecIds).order("created_at", { ascending: true }) : { data: [] };
+  const recvIds = [...new Set((ledger || []).map(p => p.received_by).filter(Boolean))];
+  const { data: recv } = recvIds.length ? await sb.from("profiles").select("id,full_name").in("id", recvIds) : { data: [] };
+  const recvName = (id) => (recv || []).find(s => s.id === id)?.full_name || "Staff";
+  const ledgerOf = (rid) => (ledger || []).filter(p => p.fee_record_id === rid);
+  const ledgerDate = (d) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const ledgerHtml = (r) => {
+    const pays = ledgerOf(r.id);
+    const sum = pays.reduce((s, p) => s + +p.amount, 0);
+    const match = pays.length && Math.abs(sum - +r.paid_amount) < 0.01;
+    return `<div id="ledger-${r.id}" class="hidden" style="margin-top:8px">
+      <p class="muted" style="margin:0 0 6px">🧾 Payment Ledger — entries from the fee_payments ledger, oldest first. ${pays.length ? (match ? `Ledger total ₹${sum.toLocaleString("en-IN")} matches the record paid amount ✅` : `⚠️ Ledger total ₹${sum.toLocaleString("en-IN")} does not match the record paid amount ₹${(+r.paid_amount).toLocaleString("en-IN")}`) : "No payment entries yet for this record."}</p>
+      ${pays.map(p => `<div class="item"><div><div class="t" style="font-size:14px">₹${(+p.amount).toLocaleString("en-IN")}</div>
+        <div class="s">${ledgerDate(p.created_at)}${p.note ? ` • ${esc(p.note)}` : ""} • Received by: ${esc(recvName(p.received_by))}</div></div></div>`).join("")}
+    </div>`;
+  };
   const planOf = (cid, type) => (plans || []).find(p => p.class_id === cid && p.fee_type === type)?.amount ?? "";
   const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
   const phoneOf = (id) => (studs || []).find(s => s.id === id)?.phone || "";
@@ -774,15 +793,16 @@ async function renderFees() {
       <button class="gold" id="fg_gen" style="width:100%">Create Fee for All Students</button>
       <div class="v45-head" style="margin-top:14px"><label style="margin:0">Recent Fee Records • ताज़ा फ़ीस रिकॉर्ड</label><button class="light small" id="feesCsvBtn">⬇ CSV Download</button></div>
       <p class="muted" style="margin:0 0 6px">Tap 📲 WhatsApp on any paid record to send the fee receipt on WhatsApp. Tap 🗑 Delete to remove a record created by mistake.</p>
-      ${(records || []).map(r => `<div class="item"><div>
+      ${(records || []).map(r => `<div><div class="item"><div>
           <div class="t" style="font-size:14px">${esc(nameOf(r.student_id))}</div>
           <div class="s">${esc(r.fee_type)} • ${esc(r.period)} • ₹${r.paid_amount} of ₹${r.amount} paid${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">Due ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
         <span style="display:flex; gap:6px; align-items:center">
           <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status === "paid" ? "Paid • जमा" : r.status === "partial" ? "Partial • आंशिक" : "Pending • बाकी"}</span>
           ${+r.paid_amount > 0 ? `<a class="light small" style="background:#e7f8ee; border-color:#25d366; color:#075e54; text-decoration:none" href="${waLink(phoneOf(r.student_id), waReceipt(r))}" target="_blank" rel="noopener">📲 WhatsApp</a>` : ""}
           ${r.status !== "paid" ? `<button class="light small" data-fpay="${r.id}:${+r.amount - +r.paid_amount}">+ Payment</button>` : ""}
+          <button class="light small" data-ledger="${r.id}">🧾 Ledger</button>
           <button class="light small" style="color:var(--bad)" data-fdel="${r.id}">🗑 Delete</button>
-        </span></div>`).join("") || `<p class="muted">No fee records yet.</p>`}
+        </span></div>${ledgerHtml(r)}</div>`).join("") || `<p class="muted">No fee records yet.</p>`}
     </div>`;
 
   host.querySelectorAll("[data-fpsave]").forEach(b => b.onclick = async () => {
@@ -846,6 +866,7 @@ async function renderFees() {
     if (error) return toast("Error: " + error.message);
     toast("Fee record deleted 🗑"); renderFees();
   });
+  host.querySelectorAll("[data-ledger]").forEach(b => b.onclick = () => document.getElementById("ledger-" + b.dataset.ledger).classList.toggle("hidden"));
   document.getElementById("feesCsvBtn").onclick = () => {
     if (!(records || []).length) return toast("No fee records to download");
     downloadCSV("fees.csv", ["Student", "Class", "Type", "Period", "Amount", "Paid", "Balance", "Status", "Due Date"],
@@ -951,7 +972,7 @@ async function renderQBank(subjects, chapters) {
 async function renderUsers() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const [{ data: users }, { data: enr }] = await Promise.all([
-    sb.from("profiles").select("id,full_name,role,phone,father_name,mother_name,dob,admission_date,address,photo_path,created_at").order("created_at", { ascending: false }),
+    sb.from("profiles").select("id,full_name,role,phone,father_name,mother_name,dob,admission_date,address,photo_path,roll_number,session,created_at").order("created_at", { ascending: false }),
     sb.from("enrollments").select("user_id,class_id"),
   ]);
   const enrOf = (uid) => (enr || []).filter(e => e.user_id === uid).map(e => e.class_id);
@@ -991,13 +1012,14 @@ async function renderUsers() {
       <span class="muted" style="font-size:12.5px">दिख रहे: <b id="uCount">${(users || []).length}</b></span>
     </div>
     ${(users || []).map(u => `
-      <div class="item" data-urow data-urole="${esc(u.role)}" data-usearch="${esc((u.full_name + " " + (u.phone || "") + " " + enrOf(u.id).map(className).join(" ") + " " + roleName(u.role)).toLowerCase())}" style="align-items:flex-start">
+      <div class="item" data-urow data-urole="${esc(u.role)}" data-usearch="${esc((u.full_name + " " + (u.phone || "") + " " + (u.roll_number || "") + " " + (u.session || "") + " " + enrOf(u.id).map(className).join(" ") + " " + roleName(u.role)).toLowerCase())}" style="align-items:flex-start">
         ${u.photo_path && urlMap[u.photo_path]
           ? `<img src="${urlMap[u.photo_path]}" alt="" class="zoomable" title="Tap to view larger" data-zoom="${urlMap[u.photo_path]}" style="width:44px; height:44px; border-radius:50%; object-fit:cover; flex:0 0 auto">`
           : `<div class="avatar" style="width:44px; height:44px; font-size:17px">${esc((u.full_name || "?").trim()[0].toUpperCase())}</div>`}
         <div style="flex:1">
           <div class="t">${esc(u.full_name)} ${u.id === me.id ? '<span class="pill gold">You</span>' : ""}</div>
           <div class="s">${esc(roleName(u.role))}${u.role === "student" ? " • " + (enrOf(u.id).map(className).join(", ") || "No class") : ""}
+          ${u.roll_number ? `<br>Roll Number: ${esc(u.roll_number)}` : ""}${u.session ? ` • Session: ${esc(u.session)}` : ""}
           ${u.father_name ? `<br>Father: ${esc(u.father_name)}` : ""}${u.dob ? ` • Born: ${esc(u.dob)}` : ""}${u.admission_date ? `<br>Admission: ${esc(u.admission_date)}` : ""}${u.phone ? ` • 📞 ${esc(u.phone)}` : ""}</div>
           <div id="edit-${u.id}" class="hidden" style="margin-top:8px">
             <label>Name</label><input id="e_name-${u.id}" value="${esc(u.full_name)}">
@@ -1009,6 +1031,10 @@ async function renderUsers() {
             </div>
             <label>Mobile</label><input id="e_phone-${u.id}" value="${esc(u.phone || "")}">
             <label>Address</label><input id="e_addr-${u.id}" value="${esc(u.address || "")}">
+            <div class="row">
+              <div><label>Roll Number</label><input id="e_roll-${u.id}" value="${esc(u.roll_number || "")}" placeholder="e.g. 12"></div>
+              <div><label>Session</label><input id="e_session-${u.id}" value="${esc(u.session || "")}" placeholder="e.g. 2026-27"></div>
+            </div>
             <label>Profile Photo</label><input id="e_photo-${u.id}" type="file" accept="image/*">
             <button class="gold small" data-save="${u.id}" style="margin-top:8px">💾 Save</button>
           </div>
@@ -1074,6 +1100,8 @@ async function renderUsers() {
         admission_date: document.getElementById("e_adm-" + uid).value || null,
         phone: document.getElementById("e_phone-" + uid).value.trim() || null,
         address: document.getElementById("e_addr-" + uid).value.trim() || null,
+        roll_number: document.getElementById("e_roll-" + uid).value.trim() || null,
+        session: document.getElementById("e_session-" + uid).value.trim() || null,
       };
       if (photo_path) upd.photo_path = photo_path;
       const { error } = await sb.from("profiles").update(upd).eq("id", uid);
@@ -1497,8 +1525,8 @@ let feesTab = "monthly"; // v44: student fees tabs (monthly | history)
 async function renderFeesStudent() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   let feeQ = sb.from("fee_records").select(profile.role === "parent"
-    ? "student_id,class_id,amount,paid_amount,fee_type,period,due_date,status,updated_at"
-    : "amount,paid_amount,fee_type,period,due_date,status,updated_at").order("created_at", { ascending: false }).is("deleted_at", null);
+    ? "id,student_id,class_id,amount,paid_amount,fee_type,period,due_date,status,updated_at"
+    : "id,amount,paid_amount,fee_type,period,due_date,status,updated_at").order("created_at", { ascending: false }).is("deleted_at", null);
   // Phase 2: students fetch only their own rows (RLS already did this; the
   // explicit filter is defence-in-depth). Parents keep the unfiltered query
   // because RLS returns their linked children's rows, which .eq(student_id,
@@ -1515,6 +1543,24 @@ async function renderFeesStudent() {
   const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "Class";
   const totalDue = recs.reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
   const totalPaid = recs.reduce((s, r) => s + +r.paid_amount, 0);
+  // Phase 4: fee_payments ledger for exactly these records
+  // (RLS returns only the viewer's own / linked children's rows).
+  const recById = Object.fromEntries(recs.map(r => [r.id, r]));
+  const { data: ledger } = recs.length ? await sb.from("fee_payments").select("id,fee_record_id,amount,received_by,note,created_at").in("fee_record_id", recs.map(r => r.id)).order("created_at", { ascending: true }) : { data: [] };
+  const ledgerPays = ledger || [];
+  const recvIds2 = [...new Set(ledgerPays.map(p => p.received_by).filter(Boolean))];
+  const { data: recv2 } = recvIds2.length ? await sb.from("profiles").select("id,full_name").in("id", recvIds2) : { data: [] };
+  const recvName2 = (id) => (recv2 || []).find(s => s.id === id)?.full_name || "Target Academy";
+  const ledgerDate2 = (d) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const ledgerSum = ledgerPays.reduce((s, p) => s + +p.amount, 0);
+  const ledgerCard = `
+      <div class="card"><h3 style="margin-top:0">🧾 भुगतान रजिस्टर • Payment Ledger</h3>
+        <p class="muted" style="margin:0 0 8px">हर भुगतान की प्रविष्टि — सबसे पुरानी पहले। Ledger total ₹${ledgerSum.toLocaleString("en-IN")} • Record paid total ₹${totalPaid.toLocaleString("en-IN")}${ledgerPays.length ? (Math.abs(ledgerSum - totalPaid) < 0.01 ? " ✅" : " ⚠️ totals differ — please tell the academy") : ""}</p>
+        ${ledgerPays.map(p => { const r = recById[p.fee_record_id] || {}; return `<div class="item"><div style="display:flex; gap:10px; align-items:center">
+          <div class="nicon" style="background:#e0f5ec">🧾</div>
+          <div><div class="t" style="font-size:14.5px">₹${(+p.amount).toLocaleString("en-IN")}</div>
+          <div class="s">${esc(r.fee_type || "")} • ${esc(r.period || "")}${profile.role === "parent" ? ` • ${esc(nameOf(r.student_id))}` : ""} • ${ledgerDate2(p.created_at)}${p.note ? ` • ${esc(p.note)}` : ""} • Received by: ${esc(recvName2(p.received_by))}</div></div></div></div>`; }).join("") || `<p class="muted" style="margin:0">अभी कोई भुगतान दर्ज नहीं है।</p>`}
+      </div>`;
 
   // Student view — monthly fees screen (photo 8)
   if (profile.role !== "parent") {
@@ -1554,6 +1600,7 @@ async function renderFeesStudent() {
         </div>
         <p class="muted" style="margin:10px 0 0">अब तक कुल जमा: ₹${totalPaid.toLocaleString("en-IN")} • ${recs.length} फ़ीस रिकॉर्ड</p>
       </div>
+      ${ledgerCard}
       <div class="seg-tabs">
         <button class="${feesTab === "monthly" ? "on" : ""}" data-ftab="monthly">Monthly Fees</button>
         <button class="${feesTab === "history" ? "on" : ""}" data-ftab="history">Payment History</button>
@@ -1589,6 +1636,7 @@ async function renderFeesStudent() {
       </div>
       ${totalDue > 0 ? `<p style="color:var(--bad); font-weight:700">⚠️ ₹${totalDue.toLocaleString("en-IN")} is due — please pay it at the academy.</p>` : `<p style="font-weight:700; color:var(--ok)">No dues 🎉</p>`}
     </div>
+    ${ledgerCard}
     ${Object.keys(byClass).length ? Object.entries(byClass).map(([cid, list]) => `
       <div class="card"><h3>🎓 ${esc(clsName(+cid))}</h3>
         ${list.map(r => `<div class="item"><div>
@@ -2424,6 +2472,8 @@ async function renderMore() {
     <div class="card"><h3>👤 खाता • Account</h3>
       <div class="hubrow" data-nav="fees"><span class="hic" style="background:#fff4cf">💰</span><span class="hub-tx"><span class="hub-t">My Fees</span><span class="hub-d">Fee records and payments</span>${(profile.role === "student" || profile.role === "parent") && feeDueTotal > 0 ? `<span class="hub-d" style="color:var(--bad); font-weight:700">Total due: ₹${feeDueTotal.toLocaleString("en-IN")}</span>` : ""}</span><span class="arr">›</span></div>
       ${profile.role === "student" ? `<div class="menu-item"><span class="mi">🎓</span>My Classes<span class="arr">${esc(classNames.join(", ") || "—")}</span></div>` : ""}
+      ${profile.roll_number ? `<div class="menu-item"><span class="mi">🔢</span>Roll Number<span class="arr">${esc(profile.roll_number)}</span></div>` : ""}
+      ${profile.session ? `<div class="menu-item"><span class="mi">📆</span>Session<span class="arr">${esc(profile.session)}</span></div>` : ""}
       <div class="menu-item"><span class="mi">🎯</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
     </div>
@@ -2474,6 +2524,8 @@ async function renderProfile() {
       <div class="menu-item"><span class="mi">✉️</span>ईमेल<span class="arr">${esc(me.email || "—")}</span></div>
       ${profile.phone ? `<div class="menu-item"><span class="mi">📱</span>फ़ोन<span class="arr">${esc(profile.phone)}</span></div>` : ""}
       <div class="menu-item"><span class="mi">🎓</span>कक्षाएँ<span class="arr">${esc(classNames || "—")}</span></div>
+      <div class="menu-item"><span class="mi">🔢</span>रोल नंबर<span class="arr">${esc(profile.roll_number || "—")}</span></div>
+      <div class="menu-item"><span class="mi">📆</span>सत्र<span class="arr">${esc(profile.session || "—")}</span></div>
       ${profile.created_at ? `<div class="menu-item"><span class="mi">📅</span>खाता बना<span class="arr">${new Date(profile.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</span></div>` : ""}
       <div class="menu-item"><span class="mi">🏫</span>Target Academy<span class="arr">Manikpur, Gopalganj</span></div>
       <div class="menu-item"><span class="mi">👨‍🏫</span>Director<span class="arr">Ashutosh Kumar</span></div>
