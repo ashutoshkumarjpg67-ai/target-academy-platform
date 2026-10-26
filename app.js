@@ -216,14 +216,14 @@ async function boot() {
   const { data } = await sb.auth.getUser();
   me = data?.user || null;
   if (!me) { renderAuth("login"); return; }
-  const { data: prof, error } = await sb.from("profiles").select("*").eq("id", me.id).single();
+  const { data: prof, error } = await sb.from("profiles").select("id,full_name,role,phone,photo_path,created_at").eq("id", me.id).single();
   if (error || !prof) { $app.innerHTML = `<div class="card"><h3>Profile not found</h3><p>Please contact the Academy.</p></div>`; return; }
   profile = prof;
   if (pendingRoleHint) {
     if (profile.role !== pendingRoleHint) toast("यह खाता " + ({ student: "छात्र", teacher: "शिक्षक", admin: "एडमिन", parent: "अभिभावक" }[profile.role] || profile.role) + " के रूप में है — उसी से लॉगिन हो गया है");
     pendingRoleHint = null;
   }
-  const { data: cls } = await sb.from("classes").select("*").order("sort_order");
+  const { data: cls } = await sb.from("classes").select("id,name,sort_order").order("sort_order");
   myClasses = cls || [];
   if (!isStaff()) {
     // Students/parents: ONLY the classes they are enrolled in exist for them
@@ -330,10 +330,6 @@ function renderShell() {
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
-function dayGreet() {
-  const h = new Date().getHours();
-  return h < 12 ? "Good Morning" : h < 17 ? "Good Afternoon" : "Good Evening";
-}
 function subjStyle(name = "") {
   const n = name.toLowerCase();
   if (n.includes("math") || n.includes("गणित")) return { i: "π", c: "#7c3aed" };
@@ -348,17 +344,6 @@ function subjStyle(name = "") {
   if (n.includes("sci") || n.includes("विज्ञान")) return { i: "🔬", c: "#0d9488" };
   return { i: "📘", c: "#17457f" };
 }
-function greetHTML(sub, photoUrl) {
-  return `<div class="greet">
-    <div class="avatar">${photoUrl ? `<img src="${photoUrl}" alt="">` : esc((profile.full_name || "T").trim()[0].toUpperCase())}</div>
-    <div><div class="g1">${dayGreet()} 🌤️ • ${esc(roleName(profile.role))}</div>
-    <div class="g2">${esc(profile.full_name)}</div>
-    <div class="g3">${esc(sub)}</div></div></div>`;
-}
-function qaHTML(items) {
-  return `<div class="qa-grid">${items.map(x => `
-    <div class="qa" data-go="${x.go}"><div class="qi" style="background:${x.bg}">${x.ic}</div><div class="ql">${x.label}</div></div>`).join("")}</div>`;
-}
 function wireQA() {
   $app.querySelectorAll("[data-go]").forEach(el => el.onclick = () => { tab = el.dataset.go; renderShell(); });
 }
@@ -366,24 +351,26 @@ function wireQA() {
 async function renderHome() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   if (!isStaff()) {
-    const [{ data: enr }, { data: subjects }, { data: chapters }, { data: notes }, { data: mats }, { data: prog }, { data: attempts }, { data: anns }, { data: lives }, { data: tt }, { data: att }, { data: pubTests }, { data: assigns }, { data: subs }, { data: feeRecs }] = await Promise.all([
-      sb.from("enrollments").select("class_id").eq("user_id", me.id),
-      sb.from("subjects").select("*").order("sort_order"),
-      sb.from("chapters").select("*").order("sort_order"),
-      sb.from("notes").select("id,class_id,subject_id").eq("status", "published"),
-      sb.from("materials").select("id,class_id,subject_id").eq("status", "published"),
-      sb.from("content_progress").select("*").eq("user_id", me.id).eq("completed", true),
-      sb.from("test_attempts").select("*").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
-      sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(4),
-      sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
-      sb.from("timetable_entries").select("*"),
-      sb.from("attendance").select("*").eq("student_id", me.id).order("on_date", { ascending: false }).limit(400),
-      sb.from("tests").select("*").eq("status", "published"),
-      sb.from("assignments").select("*"),
-      sb.from("submissions").select("assignment_id,student_id").eq("student_id", me.id),
-      sb.from("fee_records").select("*").is("deleted_at", null),
-    ]);
+    // Phase 2: enrolments first, then class-scoped queries (previously the
+    // whole subjects/tests/assignments/timetable tables were downloaded and
+    // filtered in JS). Dead fetches removed: chapters, notes, materials and
+    // content_progress were never read in this branch.
+    const { data: enr } = await sb.from("enrollments").select("class_id").eq("user_id", me.id);
     const enrolledIds = (enr || []).map(e => e.class_id);
+    const inMyClasses = (qb) => enrolledIds.length ? qb.in("class_id", enrolledIds) : qb.eq("class_id", -1);
+    const todayWd = new Date().getDay();
+    const [{ data: subjects }, { data: attempts }, { data: anns }, { data: lives }, { data: tt }, { data: att }, { data: pubTests }, { data: assigns }, { data: subs }, { data: feeRecs }] = await Promise.all([
+      inMyClasses(sb.from("subjects").select("id,name,class_id").order("sort_order")),
+      sb.from("test_attempts").select("test_id,score,max_score,percent,passed,submitted_at").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
+      sb.from("announcements").select("title,body,created_at,category").order("created_at", { ascending: false }).limit(4),
+      inMyClasses(sb.from("live_classes").select("title,class_id,starts_at,meet_link").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10)),
+      inMyClasses(sb.from("timetable_entries").select("class_id,subject_id,weekday,starts_at,ends_at").eq("weekday", todayWd)),
+      sb.from("attendance").select("status").eq("student_id", me.id).order("on_date", { ascending: false }).limit(400),
+      inMyClasses(sb.from("tests").select("id,class_id,subject_id,title,starts_at").eq("status", "published")),
+      inMyClasses(sb.from("assignments").select("id,class_id")),
+      sb.from("submissions").select("assignment_id,student_id").eq("student_id", me.id),
+      sb.from("fee_records").select("amount,paid_amount").eq("student_id", me.id).is("deleted_at", null),
+    ]);
     let greetPhoto = null;
     if (profile.photo_path) {
       const { data: sg } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
@@ -393,7 +380,6 @@ async function renderHome() {
     const clsNames = myClasses.map(c => c.name).join(", ");
     const testById = {}; (pubTests || []).forEach(t => { testById[t.id] = t; });
     const subById = {}; (subjects || []).forEach(s => { subById[s.id] = s; });
-    const todayWd = new Date().getDay();
     const todayTT = (tt || []).filter(e => enrolledIds.includes(e.class_id) && e.weekday === todayWd)
       .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
     const attTotal = (att || []).length;
@@ -450,23 +436,27 @@ async function renderHome() {
 
   // ---- Staff / Admin dashboard ----
   const todayISO = new Date().toISOString().slice(0, 10);
-  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { data: profs }, { count: dc }, { data: sLives }, { data: feeRows }, { data: attToday }, { data: ttAll }, { data: subjAll }, { data: feeAll }, { data: recentFees }] = await Promise.all([
-    sb.from("profiles").select("*", { count: "exact", head: true }).eq("role", "student"),
-    sb.from("questions").select("*", { count: "exact", head: true }),
-    sb.from("tests").select("*", { count: "exact", head: true }),
-    sb.from("profiles").select("*").order("created_at", { ascending: false }).limit(4),
-    sb.from("test_attempts").select("*").neq("status", "in_progress").order("submitted_at", { ascending: false }).limit(4),
-    sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(3),
-    sb.from("profiles").select("id,full_name"),
-    sb.from("doubts").select("*", { count: "exact", head: true }).eq("status", "open"),
-    sb.from("live_classes").select("*").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
+  const todayWdS = new Date().getDay();
+  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { count: dc }, { data: sLives }, { data: feeRows }, { data: attToday }, { data: ttAll }, { data: subjAll }, { data: feeAll }, { data: recentFees }] = await Promise.all([
+    sb.from("profiles").select("id", { count: "exact", head: true }).eq("role", "student"),
+    sb.from("questions").select("id", { count: "exact", head: true }),
+    sb.from("tests").select("id", { count: "exact", head: true }),
+    sb.from("profiles").select("id,full_name,role,created_at").order("created_at", { ascending: false }).limit(4),
+    sb.from("test_attempts").select("student_id,score,max_score,percent,passed,submitted_at").neq("status", "in_progress").order("submitted_at", { ascending: false }).limit(4),
+    sb.from("announcements").select("title,body,created_at,category").order("created_at", { ascending: false }).limit(3),
+    sb.from("doubts").select("id", { count: "exact", head: true }).eq("status", "open"),
+    sb.from("live_classes").select("title,class_id,starts_at,meet_link").gte("starts_at", new Date(Date.now() - 2 * 3600 * 1000).toISOString()).order("starts_at", { ascending: true }).limit(10),
     sb.from("fee_records").select("paid_amount").gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()).is("deleted_at", null),
     sb.from("attendance").select("status").eq("on_date", todayISO),
-    sb.from("timetable_entries").select("*"),
+    sb.from("timetable_entries").select("class_id,subject_id,weekday,starts_at,ends_at").eq("weekday", todayWdS),
     sb.from("subjects").select("id,name,class_id"),
     sb.from("fee_records").select("amount,paid_amount").is("deleted_at", null),
-    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(3).is("deleted_at", null),
+    sb.from("fee_records").select("student_id,paid_amount,amount,fee_type,period,created_at").order("created_at", { ascending: false }).limit(3).is("deleted_at", null),
   ]);
+  // Phase 2: names only for the students actually shown above (previously
+  // every profile row was downloaded for this lookup).
+  const profIds = [...new Set([...(recentAttempts || []).map(a => a.student_id), ...(recentFees || []).map(r => r.student_id)].filter(Boolean))];
+  const { data: profs } = profIds.length ? await sb.from("profiles").select("id,full_name").in("id", profIds) : { data: [] };
   const nameOf = (id) => (profs || []).find(p => p.id === id)?.full_name || "Student";
   let greetPhoto = null;
   if (profile.photo_path) {
@@ -478,7 +468,6 @@ async function renderHome() {
   const attMarked = (attToday || []).length;
   const attPresentN = (attToday || []).filter(r => r.status === "present").length;
   const attPctToday = attMarked ? Math.round((attPresentN / attMarked) * 100) : null;
-  const todayWdS = new Date().getDay();
   const clsNameS = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
   const subNameS = (id) => (subjAll || []).find(s => s.id === id)?.name || "क्लास";
   const todayClasses = (ttAll || []).filter(e => e.weekday === todayWdS)
@@ -567,9 +556,9 @@ async function renderHome() {
 async function renderManage() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const [{ data: classes }, { data: subjects }, { data: chapters }] = await Promise.all([
-    sb.from("classes").select("*").order("sort_order"),
-    sb.from("subjects").select("*").order("sort_order"),
-    sb.from("chapters").select("*").order("sort_order"),
+    sb.from("classes").select("id,name,sort_order").order("sort_order"),
+    sb.from("subjects").select("id,name,name_hi,class_id,sort_order").order("sort_order"),
+    sb.from("chapters").select("id,name,subject_id,sort_order").order("sort_order"),
   ]);
   const subsOf = (cid) => (subjects || []).filter(s => s.class_id === cid);
   const chapsOf = (sid) => (chapters || []).filter(c => c.subject_id === sid);
@@ -728,12 +717,15 @@ async function renderFeesPage() {
 async function renderFees() {
   const host = document.getElementById("fees");
   if (!host) return;
-  const [{ data: plans }, { data: records }, { data: studs }, { data: enrAll }] = await Promise.all([
-    sb.from("fee_plans").select("*"),
-    sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(60).is("deleted_at", null),
-    sb.from("profiles").select("id,full_name,phone").eq("role", "student"),
-    sb.from("enrollments").select("*"),
+  const [{ data: plans }, { data: records }, { data: enrAll }] = await Promise.all([
+    sb.from("fee_plans").select("class_id,fee_type,amount"),
+    sb.from("fee_records").select("id,student_id,class_id,fee_type,period,amount,paid_amount,status,due_date").order("created_at", { ascending: false }).limit(60).is("deleted_at", null),
+    sb.from("enrollments").select("user_id,class_id"),
   ]);
+  // Phase 2: names/phones only for the students in the 60 records shown
+  // (previously every student profile was downloaded).
+  const feeStudIds = [...new Set((records || []).map(r => r.student_id).filter(Boolean))];
+  const { data: studs } = feeStudIds.length ? await sb.from("profiles").select("id,full_name,phone").in("id", feeStudIds) : { data: [] };
   const planOf = (cid, type) => (plans || []).find(p => p.class_id === cid && p.fee_type === type)?.amount ?? "";
   const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
   const phoneOf = (id) => (studs || []).find(s => s.id === id)?.phone || "";
@@ -866,7 +858,7 @@ async function renderFees() {
 async function renderQBank(subjects, chapters) {
   const host = document.getElementById("qbank");
   if (!host) return;
-  const { data: qs } = await sb.from("questions").select("*").order("created_at", { ascending: false }).limit(30);
+  const { data: qs } = await sb.from("questions").select("id,subject_id,question_text,qtype,marks,correct_answer").order("created_at", { ascending: false }).limit(30);
   const subName = (id) => (subjects.find(s => s.id === id) || {}).name || "";
   host.innerHTML = `
     <div class="card pol-sec"><h3>❓ Question Bank (${qs ? qs.length : 0} recent)</h3>
@@ -959,8 +951,8 @@ async function renderQBank(subjects, chapters) {
 async function renderUsers() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const [{ data: users }, { data: enr }] = await Promise.all([
-    sb.from("profiles").select("*").order("created_at", { ascending: false }),
-    sb.from("enrollments").select("*"),
+    sb.from("profiles").select("id,full_name,role,phone,father_name,mother_name,dob,admission_date,address,photo_path,created_at").order("created_at", { ascending: false }),
+    sb.from("enrollments").select("user_id,class_id"),
   ]);
   const enrOf = (uid) => (enr || []).filter(e => e.user_id === uid).map(e => e.class_id);
   const className = (id) => (myClasses.find(c => c.id === id) || {}).name || "?";
@@ -1186,13 +1178,31 @@ async function uploadTo(bucket, classId, file) {
 
 async function renderStudy() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
-  const [{ data: subjects }, { data: chapters }, { data: notes }, { data: materials }, { data: bms }, { data: prog }] = await Promise.all([
-    sb.from("subjects").select("*").order("sort_order"),
-    sb.from("chapters").select("*").order("sort_order"),
-    sb.from("notes").select("*").order("created_at", { ascending: false }),
-    sb.from("materials").select("*").order("created_at", { ascending: false }),
-    sb.from("bookmarks").select("*").eq("user_id", me.id),
-    sb.from("content_progress").select("*").eq("user_id", me.id),
+  // Phase 2: students fetch only their own classes' subjects/chapters and
+  // published notes/materials (RLS already scoped students, this is the
+  // defence-in-depth + payload cut). Staff keep the full lists (drafts
+  // included) for the add/manage forms.
+  const studyClassIds = myClasses.map(c => c.id);
+  const studyClsQ = (qb) => studyClassIds.length ? qb.in("class_id", studyClassIds) : qb.eq("class_id", -1);
+  const { data: subjects } = await (isStaff()
+    ? sb.from("subjects").select("id,name,name_hi,class_id").order("sort_order")
+    : studyClsQ(sb.from("subjects").select("id,name,name_hi,class_id").order("sort_order")));
+  const studySubjIds = (subjects || []).map(x => x.id);
+  const chapQ = isStaff()
+    ? sb.from("chapters").select("id,name,name_hi,subject_id,sort_order").order("sort_order")
+    : (studySubjIds.length
+      ? sb.from("chapters").select("id,name,name_hi,subject_id,sort_order").in("subject_id", studySubjIds).order("sort_order")
+      : sb.from("chapters").select("id,name,name_hi,subject_id,sort_order").eq("subject_id", -1));
+  const notesQ = isStaff()
+    ? sb.from("notes").select("id,class_id,subject_id,chapter_id,title,description,body,file_path,status,created_at").order("created_at", { ascending: false })
+    : studyClsQ(sb.from("notes").select("id,class_id,subject_id,chapter_id,title,description,body,file_path,status,created_at").eq("status", "published").order("created_at", { ascending: false }));
+  const matsQ = isStaff()
+    ? sb.from("materials").select("id,class_id,subject_id,chapter_id,title,description,kind,file_path,external_url,difficulty,status,created_at").order("created_at", { ascending: false })
+    : studyClsQ(sb.from("materials").select("id,class_id,subject_id,chapter_id,title,description,kind,file_path,external_url,difficulty,status,created_at").eq("status", "published").order("created_at", { ascending: false }));
+  const [{ data: chapters }, { data: notes }, { data: materials }, { data: bms }, { data: prog }] = await Promise.all([
+    chapQ, notesQ, matsQ,
+    sb.from("bookmarks").select("item_type,item_id").eq("user_id", me.id),
+    sb.from("content_progress").select("item_type,item_id,completed,last_opened_at").eq("user_id", me.id),
   ]);
   const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
   const chapName = (id) => (chapters || []).find(c => c.id === id)?.name || "";
@@ -1486,7 +1496,15 @@ async function renderStudy() {
 let feesTab = "monthly"; // v44: student fees tabs (monthly | history)
 async function renderFeesStudent() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
-  const { data: records } = await sb.from("fee_records").select("*").order("created_at", { ascending: false }).is("deleted_at", null);
+  let feeQ = sb.from("fee_records").select(profile.role === "parent"
+    ? "student_id,class_id,amount,paid_amount,fee_type,period,due_date,status,updated_at"
+    : "amount,paid_amount,fee_type,period,due_date,status,updated_at").order("created_at", { ascending: false }).is("deleted_at", null);
+  // Phase 2: students fetch only their own rows (RLS already did this; the
+  // explicit filter is defence-in-depth). Parents keep the unfiltered query
+  // because RLS returns their linked children's rows, which .eq(student_id,
+  // me.id) would wrongly empty.
+  if (profile.role !== "parent") feeQ = feeQ.eq("student_id", me.id);
+  const { data: records } = await feeQ;
   const recs = records || [];
   let nameOf = () => "";
   if (profile.role === "parent" && recs.length) {
@@ -1586,12 +1604,17 @@ let run = null; // live attempt runtime
 async function renderTests() {
   if (run) { renderRun(); return; }
   $app.innerHTML = `<div class="loading">Loading…</div>`;
+  const testClassIds = myClasses.map(c => c.id);
+  const testClsQ = (qb) => testClassIds.length ? qb.in("class_id", testClassIds) : qb.eq("class_id", -1);
+  const testsQ = isStaff()
+    ? sb.from("tests").select("id,class_id,subject_id,chapter_id,title,duration_minutes,total_marks,negative_marking,max_attempts,instant_feedback,status,created_at").order("created_at", { ascending: false })
+    : testClsQ(sb.from("tests").select("id,class_id,subject_id,chapter_id,title,duration_minutes,total_marks,negative_marking,max_attempts,instant_feedback,status,created_at").eq("status", "published").order("created_at", { ascending: false }));
   const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }, { data: chapters }] = await Promise.all([
-    sb.from("tests").select("*").order("created_at", { ascending: false }),
-    sb.from("test_attempts").select("*").eq("student_id", me.id).order("started_at", { ascending: false }),
-    isStaff() ? sb.from("questions").select("*").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
-    sb.from("subjects").select("*").order("sort_order"),
-    sb.from("chapters").select("*").order("sort_order"),
+    testsQ,
+    sb.from("test_attempts").select("id,test_id,status,score,max_score,percent,passed,submitted_at,started_at").eq("student_id", me.id).order("started_at", { ascending: false }),
+    isStaff() ? sb.from("questions").select("id,class_id,subject_id,chapter_id,question_text,qtype,marks").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
+    sb.from("subjects").select("id,name,name_hi,class_id").order("sort_order"),
+    sb.from("chapters").select("id,sort_order").order("sort_order"),
   ]);
   const attemptsOf = (tid) => (myAttempts || []).filter(a => a.test_id === tid);
   // Arrange tests by chapter, not by creation date (user report 23 Oct:
@@ -1753,11 +1776,14 @@ async function renderTests() {
 async function renderTestResults(testId) {
   const host = document.getElementById("tResults");
   host.innerHTML = `<div class="card"><div class="loading">Loading results…</div></div>`;
-  const [{ data: attempts }, { data: studs }, { data: testRow }] = await Promise.all([
-    sb.from("test_attempts").select("*").eq("test_id", testId).order("percent", { ascending: false }),
-    sb.from("profiles").select("id,full_name").eq("role", "student"),
+  const [{ data: attempts }, { data: testRow }] = await Promise.all([
+    sb.from("test_attempts").select("student_id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("test_id", testId).order("percent", { ascending: false }),
     sb.from("tests").select("title").eq("id", testId).maybeSingle(),
   ]);
+  // Phase 2: names only for students who took this test (previously all
+  // student profiles were downloaded).
+  const resStudIds = [...new Set((attempts || []).map(a => a.student_id).filter(Boolean))];
+  const { data: studs } = resStudIds.length ? await sb.from("profiles").select("id,full_name").in("id", resStudIds) : { data: [] };
   const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
   const testTitle = testRow?.title || "Test";
   const resStatus = (a) => a.status === "in_progress" ? "In Progress" : (a.passed ? "Pass" : "Fail");
@@ -1807,7 +1833,7 @@ async function previewTest(test) {
   const { data: tqs } = await sb.from("test_questions").select("question_id, sort_order").eq("test_id", test.id).order("sort_order");
   const ids = (tqs || []).map(x => x.question_id);
   if (!ids.length) { $app.innerHTML = `<div class="card"><p>This test has no questions yet.</p><button class="light" id="pv_back">← Back to Tests</button></div>`; document.getElementById("pv_back").onclick = () => { tab = "tests"; renderShell(); }; return; }
-  const { data: qs } = await sb.from("questions").select("*").in("id", ids);
+  const { data: qs } = await sb.from("questions").select("id,question_text,options,correct_answer,explanation,qtype,marks").in("id", ids);
   const byId = {}; (qs || []).forEach(q => byId[q.id] = q);
   const ordered = ids.map(id => byId[id]).filter(Boolean);
   $app.innerHTML = `
@@ -1892,7 +1918,7 @@ async function startTest(test, myAttempts) {
   }
   const { data: qs, error } = await sb.rpc("get_test_questions", { p_test_id: test.id });
   if (error) return toast("Questions not found: " + error.message);
-  const { data: saved } = await sb.from("attempt_responses").select("*").eq("attempt_id", attempt.id);
+  const { data: saved } = await sb.from("attempt_responses").select("question_id,answer,marked_for_review").eq("attempt_id", attempt.id);
   let subjName = "";
   if (test.subject_id) {
     const { data: sj } = await sb.from("subjects").select("name, name_hi").eq("id", test.subject_id).maybeSingle();
@@ -2001,22 +2027,6 @@ function matchLabel(q) {
   const m = t.match(/[“"]([^”"]+)[”"]/);
   if (m) return m[1];
   return t.replace(/^Match the following\s*[—–-]?\s*/, "").replace(/\s*matches with:?\s*$/i, "");
-}
-function qSections() {
-  const secs = [];
-  let cur = null;
-  const push = (kind, label, q) => {
-    if (!cur || cur.kind !== kind) { cur = { kind, label, items: [] }; secs.push(cur); }
-    cur.items.push(q);
-  };
-  for (const q of run.qs) {
-    if (isMatchQ(q)) push("match", "🔗 Match the Following", q);
-    else if (q.qtype === "mcq_single" || q.qtype === "mcq_multi") push("mcq", "✏️ Multiple Choice — Tick the correct option", q);
-    else if (q.qtype === "fill_blank") push("fill", "✍️ Fill in the Blanks", q);
-    else if (q.qtype === "true_false") push("tf", "✔️ True or False", q);
-    else push("short", "📝 Short Questions — Answer in brief", q);
-  }
-  return secs;
 }
 function explHTML(fb) {
   return `<div class="expl-box">${fb.is_correct ? "✅ <b>Correct answer!</b> Very good 🎉" : "❌ <b>Wrong answer</b> — the correct answer is shown in green above."}${fb.explanation ? `<br>💡 <b>Explanation:</b> ${esc(fb.explanation)}` : ""}</div>`;
@@ -2258,11 +2268,11 @@ async function showResult(attemptId, test) {
   try { history.pushState({ view: "result" }, ""); } catch (e) {}
   $app.innerHTML = `<div class="loading">Loading result…</div>`;
   $tabbar.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === "tests"));
-  const { data: attempt } = await sb.from("test_attempts").select("*").eq("id", attemptId).single();
+  const { data: attempt } = await sb.from("test_attempts").select("id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("id", attemptId).single();
   const { data: review, error } = await sb.rpc("get_attempt_review", { p_attempt_id: attemptId });
   let myTestAttempts = [];
   if (test && !isStaff()) {
-    const { data: atts } = await sb.from("test_attempts").select("*").eq("test_id", test.id).eq("student_id", me.id).order("started_at", { ascending: false });
+    const { data: atts } = await sb.from("test_attempts").select("status").eq("test_id", test.id).eq("student_id", me.id).order("started_at", { ascending: false });
     myTestAttempts = atts || [];
   }
   const submittedCount = myTestAttempts.filter(a => a.status !== "in_progress").length;
@@ -2352,7 +2362,9 @@ async function renderMore() {
   }
   let myFees = [];
   if (profile.role === "student" || profile.role === "parent") {
-    const { data } = await sb.from("fee_records").select("*").order("created_at", { ascending: false }).limit(12).is("deleted_at", null);
+    let moreFeeQ = sb.from("fee_records").select("fee_type,period,amount,paid_amount,due_date,status").order("created_at", { ascending: false }).limit(12).is("deleted_at", null);
+    if (profile.role === "student") moreFeeQ = moreFeeQ.eq("student_id", me.id);
+    const { data } = await moreFeeQ;
     myFees = data || [];
   }
   let myPhoto = null;
@@ -2538,8 +2550,8 @@ const annCatMeta = {
 };
 async function renderNotifs() {
   const [{ data: rows }, { data: anns }] = await Promise.all([
-    sb.from("notifications").select("*").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
-    sb.from("announcements").select("*").order("created_at", { ascending: false }).limit(30),
+    sb.from("notifications").select("id,title,body,kind,is_read,created_at").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
+    sb.from("announcements").select("class_id,title,body,created_at,category").order("created_at", { ascending: false }).limit(30),
   ]);
   const annCls = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
   const icons = { announcement: "📢", test: "📝", doubt: "❓", live: "📺", note: "📚", assignment: "📒", fee: "💰", result: "🏆", admission: "✅", welcome: "🎉" };
@@ -2594,7 +2606,13 @@ async function renderNotifs() {
 
 async function renderLive() {
   const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
-  const { data: rows, error } = await sb.from("live_classes").select("*").order("starts_at", { ascending: true });
+  const liveClassIds = myClasses.map(c => c.id);
+  const liveQ = isStaff()
+    ? sb.from("live_classes").select("id,title,class_id,starts_at,meet_link").order("starts_at", { ascending: true })
+    : (liveClassIds.length
+      ? sb.from("live_classes").select("id,title,class_id,starts_at,meet_link").in("class_id", liveClassIds).order("starts_at", { ascending: true })
+      : sb.from("live_classes").select("id,title,class_id,starts_at,meet_link").eq("class_id", -1).order("starts_at", { ascending: true }));
+  const { data: rows, error } = await liveQ;
   if (error) { $app.innerHTML = `<div class="card"><h3>📺 Live Class</h3><p class="muted">This feature is still being prepared.</p></div>`; return; }
   const cutoff = Date.now() - 2 * 3600 * 1000;
   const up = (rows || []).filter(r => new Date(r.starts_at).getTime() > cutoff);
@@ -2892,9 +2910,12 @@ async function renderTutor() {
 let doubtTab = "open"; // staff filter: open | answered | all
 async function renderDoubts() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
+  const doubtsQ = isStaff()
+    ? sb.from("doubts").select("id,student_id,class_id,subject_id,question_text,answer_text,ai_answer,answered_by,status,created_at,answered_at").order("created_at", { ascending: false })
+    : sb.from("doubts").select("id,student_id,class_id,subject_id,question_text,answer_text,ai_answer,answered_by,status,created_at,answered_at").eq("student_id", me.id).order("created_at", { ascending: false });
   const [{ data: doubts }, { data: subjects }] = await Promise.all([
-    sb.from("doubts").select("*").order("created_at", { ascending: false }),
-    sb.from("subjects").select("*").order("sort_order"),
+    doubtsQ,
+    sb.from("subjects").select("id,name,name_hi,class_id").order("sort_order"),
   ]);
   const list = doubts || [];
   const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
@@ -3015,10 +3036,16 @@ async function renderDoubts() {
 let hwClassId = null, hwOpenId = null, hwSubmitId = null;
 async function renderHomework() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
+  const hwClassIds = myClasses.map(c => c.id);
+  const hwClsQ = (qb) => hwClassIds.length ? qb.in("class_id", hwClassIds) : qb.eq("class_id", -1);
   const [{ data: assigns }, { data: subs }, { data: subjects }] = await Promise.all([
-    sb.from("assignments").select("*").order("created_at", { ascending: false }),
-    sb.from("submissions").select("*"),
-    sb.from("subjects").select("*"),
+    isStaff()
+      ? sb.from("assignments").select("id,class_id,subject_id,title,instructions,due_at,max_marks,allow_resubmit,status,created_at").order("created_at", { ascending: false })
+      : hwClsQ(sb.from("assignments").select("id,class_id,subject_id,title,instructions,due_at,max_marks,allow_resubmit,status,created_at").order("created_at", { ascending: false })),
+    isStaff()
+      ? sb.from("submissions").select("id,assignment_id,student_id,body,file_path,submitted_at,marks,feedback,status")
+      : sb.from("submissions").select("id,assignment_id,student_id,body,file_path,submitted_at,marks,feedback,status").eq("student_id", me.id),
+    sb.from("subjects").select("id,name,class_id"),
   ]);
   const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
   const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
@@ -3171,7 +3198,7 @@ async function renderAttendance() {
     if (!attClassId && myClasses.length) attClassId = myClasses[0].id;
     const [{ data: enr }, { data: existing }] = await Promise.all([
       sb.from("enrollments").select("user_id").eq("class_id", attClassId),
-      sb.from("attendance").select("*").eq("class_id", attClassId).eq("on_date", attDate),
+      sb.from("attendance").select("student_id,status").eq("class_id", attClassId).eq("on_date", attDate),
     ]);
     const ids = (enr || []).map(e => e.user_id);
     const { data: studs } = ids.length ? await sb.from("profiles").select("id,full_name").in("id", ids) : { data: [] };
@@ -3218,7 +3245,7 @@ async function renderAttendance() {
     const [ay, am] = attMonth.split("-").map(Number);
     const aPad = (n) => String(n).padStart(2, "0");
     const aLastDay = new Date(ay, am, 0).getDate();
-    const { data: mrecs } = await sb.from("attendance").select("*").eq("student_id", me.id)
+    const { data: mrecs } = await sb.from("attendance").select("on_date,status,class_id").eq("student_id", me.id)
       .gte("on_date", `${ay}-${aPad(am)}-01`).lte("on_date", `${ay}-${aPad(am)}-${aPad(aLastDay)}`).order("on_date", { ascending: true });
     const mrows = mrecs || [];
     const byDate = {}; mrows.forEach(r => { byDate[r.on_date] = r.status; });
@@ -3269,7 +3296,7 @@ async function renderAttendance() {
   }
 
   // Parent view
-  const { data: recs } = await sb.from("attendance").select("*").order("on_date", { ascending: false }).limit(60);
+  const { data: recs } = await sb.from("attendance").select("student_id,class_id,on_date,status").order("on_date", { ascending: false }).limit(60);
   let nameOf = () => "";
   if (profile.role === "parent" && (recs || []).length) {
     const ids = [...new Set(recs.map(r => r.student_id))];
@@ -3300,8 +3327,8 @@ async function renderTimetable() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   if (!ttClassId && myClasses.length) ttClassId = myClasses[0].id;
   const [{ data: entries }, { data: subjects }, { data: staffList }] = await Promise.all([
-    sb.from("timetable_entries").select("*").eq("class_id", ttClassId).order("starts_at"),
-    sb.from("subjects").select("*"),
+    sb.from("timetable_entries").select("id,class_id,subject_id,teacher_id,weekday,starts_at,ends_at").eq("class_id", ttClassId).order("starts_at"),
+    sb.from("subjects").select("id,name,class_id"),
     isStaff() ? sb.from("profiles").select("id,full_name,role").in("role", ["teacher", "admin"]) : Promise.resolve({ data: [] }),
   ]);
   const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "—";
@@ -3379,8 +3406,8 @@ async function renderStudio() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   const [gRes, sRes, cRes] = await Promise.all([
     sb.from("studio_generations").select("id,created_at,youtube_url,video_title,class_label,subject,chapter,language_mode,difficulty").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
-    sb.from("subjects").select("*").order("sort_order"),
-    sb.from("chapters").select("*").order("sort_order"),
+    sb.from("subjects").select("id,name,class_id").order("sort_order"),
+    sb.from("chapters").select("id,name,subject_id").order("sort_order"),
   ]);
   if (gRes.error) {
     $app.innerHTML = `<div class="card"><h3>🎬 Video Studio</h3><p class="muted">This feature is still being prepared. Please check again shortly.</p></div>`;
