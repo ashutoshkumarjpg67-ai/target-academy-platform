@@ -2034,13 +2034,27 @@ function tickTimer() {
   if (left <= 0) finishTest(true);
 }
 async function saveAnswer(qid) {
-  if (!run) return;
-  await sb.from("attempt_responses").upsert({
+  if (!run) return null;
+  const { error } = await sb.from("attempt_responses").upsert({
     attempt_id: run.attempt.id, question_id: qid,
     answer: run.answers.get(qid) ?? null,
     marked_for_review: run.review.has(qid),
     answered_at: new Date().toISOString(),
   }, { onConflict: "attempt_id,question_id" });
+  if (error) toast("उत्तर save नहीं हुआ: " + error.message);
+  return error || null;
+}
+// Submit se pehle local me maujood saare jawab dobara DB me save karo.
+// Agar koi bhi save fail ho, submit roko — warna jawab khamoshi me
+// kho jayenge aur score phir 0 banega (Kajal, attempt 50, 28 Oct).
+async function flushAllAnswers() {
+  if (!run) return null;
+  for (const [qid, ans] of run.answers) {
+    if (ans === undefined || ans === null || ans[0] === undefined || ans[0] === null || String(ans[0]).trim() === "") continue;
+    const err = await saveAnswer(qid);
+    if (err) return err;
+  }
+  return null;
 }
 function runAnsweredCount() {
   if (!run) return 0;
@@ -2099,6 +2113,9 @@ async function confirmSubmit() {
   const n = runAnsweredCount(), total = run.qs.length;
   // Never submit a completely empty test — a mistaken tap used to score 0.
   if (n === 0) { toast("Koi jawab nahi diya — pehle kam se kam ek prashn ka jawab dijiye"); return; }
+  // Saare jawab DB me pakke kar lo; agar save fail ho to submit mat karo.
+  const saveErr = await flushAllAnswers();
+  if (saveErr) { toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message); return; }
   if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
 }
 const MATCH_PREFIX = "Match the following";
@@ -2294,6 +2311,10 @@ async function finishTest(auto) {
   if (!run) return;
   const { attempt, test } = run;
   clearInterval(run.timer);
+  if (auto) {
+    const saveErr = await flushAllAnswers();
+    if (saveErr) { toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message); return; }
+  }
   const { data, error } = await sb.rpc("submit_attempt", { p_attempt_id: attempt.id });
   run = null;
   if (error) { toast("Problem submitting: " + error.message); tab = "tests"; renderShell(); return; }
