@@ -1698,7 +1698,7 @@ async function renderTests() {
     const live = mine.find(a => a.status === "in_progress");
     return `<div class="item"><div>
         <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes ? `${t.duration_minutes} min` : "Unlimited time"} • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(t.duration_minutes) ? "Unlimited time" : `${t.duration_minutes} min`} • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
         <span class="pill ${t.status === "published" ? "green" : "gold"}">${t.status === "published" ? "उपलब्ध • Live" : t.status === "draft" ? "ड्राफ़्ट • Draft" : esc(t.status)}</span>
@@ -1783,7 +1783,7 @@ async function renderTests() {
         teacher_id: me.id, class_id: +classSel.value, title,
         subject_id: subjIds.length === 1 ? subjIds[0] : null,
         chapter_id: chapIds.length === 1 ? chapIds[0] : null,
-        duration_minutes: Math.max(0, +document.getElementById("t_dur").value || 0),
+        duration_minutes: (() => { const d = Math.max(0, +document.getElementById("t_dur").value || 0); return d === 0 ? 99999 : d; })(),
         negative_marking: +document.getElementById("t_neg").value || 0,
         passing_percent: +document.getElementById("t_pass").value || 33,
         max_attempts: (() => { const v = document.getElementById("t_max").value.trim(); return v === "" ? 0 : Math.max(0, +v); })(),
@@ -1899,7 +1899,7 @@ async function previewTest(test) {
     <div class="card">
       <button class="light small" id="pv_back">← Back to Tests</button>
       <h3 style="margin-top:10px">👁 ${esc(test.title)}</h3>
-      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${test.duration_minutes ? `${test.duration_minutes} min` : "Unlimited time"} • ${test.total_marks} marks • ${ordered.length} questions • ${esc(test.status)}</p>
+      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(test.duration_minutes) ? "Unlimited time" : `${test.duration_minutes} min`} • ${test.total_marks} marks • ${ordered.length} questions • ${esc(test.status)}</p>
       <p class="muted">This is for checking only — no attempt is created here and no result is saved. The correct answer is shown in green.</p>
     </div>
     ${ordered.map((q, i) => {
@@ -1966,6 +1966,11 @@ function shuffleForAttempt(qs, attemptId) {
   }
   return res;
 }
+// Unlimited time sentinel: 99999 minutes in the DB means "no deadline".
+// New code treats 0 and >=10000 as unlimited, and OLD cached app versions
+// also survive it (their timer would run ~69 days instead of expiring
+// instantly, which is what duration 0 did in old code: started_at + 0).
+function isUnlimitedTime(d) { return !d || d >= 10000; }
 let startingTest = false;
 async function startTest(test, myAttempts) {
   // Guard against double-taps creating duplicate in_progress attempts
@@ -1994,7 +1999,7 @@ async function startTest(test, myAttempts) {
     answers: new Map((saved || []).map(r => [r.question_id, r.answer])),
     review: new Set((saved || []).filter(r => r.marked_for_review).map(r => r.question_id)),
     feedback: new Map(),
-    endsAt: test.duration_minutes ? new Date(attempt.started_at).getTime() + test.duration_minutes * 60000 : null,
+    endsAt: isUnlimitedTime(test.duration_minutes) ? null : new Date(attempt.started_at).getTime() + test.duration_minutes * 60000,
     timer: null,
   };
   if (test.instant_feedback) {
@@ -2092,6 +2097,8 @@ async function confirmSubmit() {
   if (!run) return;
   await flushCurrentInput();
   const n = runAnsweredCount(), total = run.qs.length;
+  // Never submit a completely empty test — a mistaken tap used to score 0.
+  if (n === 0) { toast("Koi jawab nahi diya — pehle kam se kam ek prashn ka jawab dijiye"); return; }
   if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
 }
 const MATCH_PREFIX = "Match the following";
@@ -2195,7 +2202,7 @@ function runHeadHTML() {
       <div class="run-head-top">
         <div style="flex:1; min-width:0">
           <div class="run-title">${esc(test.title)}</div>
-          <div class="run-meta">${run.subjName ? esc(run.subjName) + " • " : ""}${qs.length} प्रश्न • ${test.duration_minutes ? `${test.duration_minutes} मिनट` : "Unlimited time"}${test.instant_feedback ? " • ⚡ Practice Mode" : ""}</div>
+          <div class="run-meta">${run.subjName ? esc(run.subjName) + " • " : ""}${qs.length} प्रश्न • ${isUnlimitedTime(test.duration_minutes) ? "Unlimited time" : `${test.duration_minutes} मिनट`}${test.instant_feedback ? " • ⚡ Practice Mode" : ""}</div>
         </div>
         <span class="timer-pill" id="tTimer">⏱ --:--</span>
       </div>
