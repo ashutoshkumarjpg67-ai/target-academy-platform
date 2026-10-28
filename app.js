@@ -1683,11 +1683,14 @@ async function renderTests() {
     String(a.created_at || "").localeCompare(String(b.created_at || "")));
   const testRow = (t) => {
     const mine = attemptsOf(t.id);
-    const submitted = mine.filter(a => a.status !== "in_progress");
+    // Show the LATEST submitted attempt (by submitted_at), not the first
+    // by started_at — otherwise a retake's new score can be hidden behind
+    // an older submitted attempt when attempts overlap.
+    const submitted = mine.filter(a => a.status !== "in_progress").sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
     const live = mine.find(a => a.status === "in_progress");
     return `<div class="item"><div>
         <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes} min • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${t.duration_minutes ? `${t.duration_minutes} min` : "Unlimited time"} • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
         <span class="pill ${t.status === "published" ? "green" : "gold"}">${t.status === "published" ? "उपलब्ध • Live" : t.status === "draft" ? "ड्राफ़्ट • Draft" : esc(t.status)}</span>
@@ -1727,7 +1730,7 @@ async function renderTests() {
       <label>Test Name</label><input id="t_title" placeholder="e.g. Science — Chapter 5 Test">
       <div class="row">
         <div><label>Class</label><select id="t_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
-        <div><label>Time (minutes)</label><input id="t_dur" type="number" value="60" min="1"></div>
+        <div><label>Time (minutes, 0 = Unlimited)</label><input id="t_dur" type="number" value="0" min="0"></div>
       </div>
       <div class="row">
         <div><label>Negative marking (per wrong answer)</label><input id="t_neg" type="number" value="0" min="0" step="0.25"></div>
@@ -1772,10 +1775,10 @@ async function renderTests() {
         teacher_id: me.id, class_id: +classSel.value, title,
         subject_id: subjIds.length === 1 ? subjIds[0] : null,
         chapter_id: chapIds.length === 1 ? chapIds[0] : null,
-        duration_minutes: +document.getElementById("t_dur").value || 30,
+        duration_minutes: Math.max(0, +document.getElementById("t_dur").value || 0),
         negative_marking: +document.getElementById("t_neg").value || 0,
         passing_percent: +document.getElementById("t_pass").value || 33,
-        max_attempts: (() => { const v = document.getElementById("t_max").value.trim(); return v === "" ? 1 : Math.max(0, +v); })(),
+        max_attempts: (() => { const v = document.getElementById("t_max").value.trim(); return v === "" ? 0 : Math.max(0, +v); })(),
         instant_feedback: document.getElementById("t_instant").checked,
         total_marks: total, status: "draft",
       }).select().single();
@@ -1888,7 +1891,7 @@ async function previewTest(test) {
     <div class="card">
       <button class="light small" id="pv_back">← Back to Tests</button>
       <h3 style="margin-top:10px">👁 ${esc(test.title)}</h3>
-      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${test.duration_minutes} min • ${test.total_marks} marks • ${ordered.length} questions • ${esc(test.status)}</p>
+      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${test.duration_minutes ? `${test.duration_minutes} min` : "Unlimited time"} • ${test.total_marks} marks • ${ordered.length} questions • ${esc(test.status)}</p>
       <p class="muted">This is for checking only — no attempt is created here and no result is saved. The correct answer is shown in green.</p>
     </div>
     ${ordered.map((q, i) => {
@@ -1955,7 +1958,13 @@ function shuffleForAttempt(qs, attemptId) {
   }
   return res;
 }
+let startingTest = false;
 async function startTest(test, myAttempts) {
+  // Guard against double-taps creating duplicate in_progress attempts
+  // (seen in the DB: pairs of attempts 1 second apart for the same test).
+  if (startingTest) return;
+  startingTest = true;
+  try {
   let attempt = (myAttempts || []).find(a => a.status === "in_progress");
   if (!attempt) {
     const doneCount = (myAttempts || []).filter(a => a.status !== "in_progress").length;
@@ -1977,7 +1986,7 @@ async function startTest(test, myAttempts) {
     answers: new Map((saved || []).map(r => [r.question_id, r.answer])),
     review: new Set((saved || []).filter(r => r.marked_for_review).map(r => r.question_id)),
     feedback: new Map(),
-    endsAt: new Date(attempt.started_at).getTime() + test.duration_minutes * 60000,
+    endsAt: test.duration_minutes ? new Date(attempt.started_at).getTime() + test.duration_minutes * 60000 : null,
     timer: null,
   };
   if (test.instant_feedback) {
@@ -1991,9 +2000,17 @@ async function startTest(test, myAttempts) {
   try { history.pushState({ view: "run" }, ""); } catch (e) {}
   renderRun();
   run.timer = setInterval(tickTimer, 500); tickTimer();
+  } finally { startingTest = false; }
 }
 function tickTimer() {
   if (!run) return;
+  // Unlimited time: duration 0 (or null) means no deadline at all — never
+  // auto-submit, so resuming an old attempt can no longer score 0 instantly.
+  if (!run.endsAt) {
+    const el = document.getElementById("tTimer");
+    if (el) el.textContent = "⏱ Unlimited";
+    return;
+  }
   const left = run.endsAt - Date.now();
   const el = document.getElementById("tTimer");
   if (el) {
@@ -2167,7 +2184,7 @@ function runHeadHTML() {
       <div class="run-head-top">
         <div style="flex:1; min-width:0">
           <div class="run-title">${esc(test.title)}</div>
-          <div class="run-meta">${run.subjName ? esc(run.subjName) + " • " : ""}${qs.length} प्रश्न • ${test.duration_minutes} मिनट${test.instant_feedback ? " • ⚡ Practice Mode" : ""}</div>
+          <div class="run-meta">${run.subjName ? esc(run.subjName) + " • " : ""}${qs.length} प्रश्न • ${test.duration_minutes ? `${test.duration_minutes} मिनट` : "Unlimited time"}${test.instant_feedback ? " • ⚡ Practice Mode" : ""}</div>
         </div>
         <span class="timer-pill" id="tTimer">⏱ --:--</span>
       </div>
