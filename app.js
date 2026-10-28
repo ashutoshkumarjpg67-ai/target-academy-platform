@@ -717,10 +717,12 @@ async function renderFeesPage() {
 async function renderFees() {
   const host = document.getElementById("fees");
   if (!host) return;
-  const [{ data: plans }, { data: records }, { data: enrAll }] = await Promise.all([
+  const [{ data: plans }, { data: records }, { data: enrAll }, { data: allFee }] = await Promise.all([
     sb.from("fee_plans").select("class_id,fee_type,amount"),
     sb.from("fee_records").select("id,student_id,class_id,fee_type,period,amount,paid_amount,status,due_date").order("created_at", { ascending: false }).limit(60).is("deleted_at", null),
     sb.from("enrollments").select("user_id,class_id"),
+    // Header totals must cover ALL records, not just the 60 shown in the list.
+    sb.from("fee_records").select("amount,paid_amount,period").is("deleted_at", null),
   ]);
   // Phase 2: names/phones only for the students in the 60 records shown
   // (previously every student profile was downloaded).
@@ -758,12 +760,12 @@ async function renderFees() {
     const cls = (myClasses.find(c => c.id === r.class_id) || {}).name || "";
     return `🙏 Namaste! Target Academy Coaching Centre — Fee Receipt ✅\n\nStudent: ${nameOf(r.student_id)}${cls ? ` (${cls})` : ""}\nFee: ${r.fee_type} — ${r.period}\nJama (Paid): ₹${r.paid_amount} / ₹${r.amount}` + (due > 0 ? `\nBaki (Due): ₹${due}` : `\nPoori fee jama ho gayi hai ✅`) + `\n\nDhanyavaad! 🙏`;
   };
-  const totalDue = (records || []).reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
-  const totalPaid = (records || []).reduce((s, r) => s + +r.paid_amount, 0);
+  const totalDue = (allFee || []).reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
+  const totalPaid = (allFee || []).reduce((s, r) => s + +r.paid_amount, 0);
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const now = new Date();
   const defaultPeriod = `${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
-  const thisMonthPaid = (records || []).filter(r => r.period === defaultPeriod).reduce((s, r) => s + +r.paid_amount, 0);
+  const thisMonthPaid = (allFee || []).filter(r => r.period === defaultPeriod).reduce((s, r) => s + +r.paid_amount, 0);
 
   host.innerHTML = `
     <div class="card pol-sec v45rows"><h3>💰 Fees • फ़ीस</h3>
@@ -846,7 +848,11 @@ async function renderFees() {
     const v = prompt(`How much was paid (₹)? (Due ₹${dueAmt})`);
     if (!v) return;
     const rec = (records || []).find(r => r.id === +id);
-    const paid = +rec.paid_amount + +v;
+    const due = +rec.amount - +rec.paid_amount;
+    const vNum = Number(v);
+    if (!Number.isFinite(vNum) || vNum <= 0) return toast("Enter a valid amount (number greater than 0)");
+    if (vNum > due) return toast(`Amount cannot exceed the due ₹${due}`);
+    const paid = +rec.paid_amount + vNum;
     const status = paid >= +rec.amount ? "paid" : "partial";
     const { error } = await sb.from("fee_records").update({ paid_amount: paid, status, updated_at: new Date().toISOString() }).eq("id", +id);
     if (error) return toast("Error: " + error.message);
@@ -950,6 +956,7 @@ async function renderQBank(subjects, chapters) {
     } else if (t === "fill_blank") {
       const v = document.getElementById("q_correct_text").value.trim();
       if (!v) { err.textContent = "Write the correct answer"; return; }
+      if (!text.includes("_____")) { err.textContent = "Fill-blank question must contain _____ in the question text"; return; }
       correct = [v];
     }
     const { error } = await sb.from("questions").insert({
@@ -1174,8 +1181,9 @@ async function renderUsers() {
   document.getElementById("usersCsvBtn").onclick = () => {
     const studs = (users || []).filter(u => u.role === "student");
     if (!studs.length) return toast("No students to download");
-    downloadCSV("students.csv", ["Name", "Class", "Phone", "Email", "Father Name", "Date of Birth", "Admission Date", "Address"],
-      studs.map(u => [u.full_name, enrOf(u.id).map(className).join(", "), u.phone || "", u.email || "", u.father_name || "", u.dob || "", u.admission_date || "", u.address || ""]));
+    // Email column dropped: profiles holds no email (it lives in Auth), so it was always blank.
+    downloadCSV("students.csv", ["Name", "Class", "Phone", "Father Name", "Date of Birth", "Admission Date", "Address"],
+      studs.map(u => [u.full_name, enrOf(u.id).map(className).join(", "), u.phone || "", u.father_name || "", u.dob || "", u.admission_date || "", u.address || ""]));
     toast("CSV downloaded ⬇");
   };
 }
@@ -1701,7 +1709,7 @@ async function renderTests() {
             <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Make Draft" : "Publish"}</button>
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
           : t.status === "published" ? (live
-            ? `<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
+            ? `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
             : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake (${submitted.length}/${t.max_attempts})` : "🔁 Retake") : "▶ Start Test"}</button>` : ""}`) : ""}
       </div></div>`;
   };
@@ -1828,7 +1836,7 @@ async function renderTestResults(testId) {
   const host = document.getElementById("tResults");
   host.innerHTML = `<div class="card"><div class="loading">Loading results…</div></div>`;
   const [{ data: attempts }, { data: testRow }] = await Promise.all([
-    sb.from("test_attempts").select("student_id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("test_id", testId).order("percent", { ascending: false }),
+    sb.from("test_attempts").select("student_id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("test_id", testId).order("percent", { ascending: false, nullsFirst: false }),
     sb.from("tests").select("title").eq("id", testId).maybeSingle(),
   ]);
   // Phase 2: names only for students who took this test (previously all
@@ -1843,7 +1851,7 @@ async function renderTestResults(testId) {
       <span style="display:flex; gap:6px"><button class="light small" id="resCsvBtn">⬇ CSV Download</button><button class="light small" id="resPrintBtn">🖨 Print</button></span></div>
     ${(attempts && attempts.length) ? attempts.map(a => `<div class="item"><div>
       <div class="t">${esc(nameOf(a.student_id))}</div>
-      <div class="s">${a.status === "in_progress" ? "⏳ Test in progress" : `${new Date(a.submitted_at).toLocaleString("en-IN")} • ${Math.round((a.time_taken_seconds || 0) / 60)} min`}</div></div>
+      <div class="s">${a.status === "in_progress" ? "⏳ Test in progress" : `${new Date(a.submitted_at).toLocaleString("en-IN")} • ${(() => { const mm = Math.round((a.time_taken_seconds || 0) / 60); return mm >= 60 ? `${Math.floor(mm / 60)} घंटे ${mm % 60} मिनट` : `${mm} min`; })()}`}</div></div>
       ${a.status === "in_progress" ? `<span class="pill gold">LIVE</span>` : `<span class="pill ${a.passed ? "green" : "red"}">${a.score}/${a.max_score} • ${a.percent}%</span>`}
     </div>`).join("") : `<p>No student has taken this test yet.</p>`}
   </div>`;
@@ -2062,26 +2070,27 @@ function palGridHTML() {
     <span><i class="lg"></i>बाकी</span>
   </div>`;
 }
-function flushCurrentInput() {
+async function flushCurrentInput() {
   if (!run) return;
   const q = run.qs[run.idx];
   if (!q) return;
   const inp = document.querySelector(`[data-fillq="${q.question_id}"], [data-textq="${q.question_id}"]`);
   if (inp) {
     const cur = (run.answers.get(q.question_id) || [])[0];
-    if (String(inp.value ?? "") !== String(cur ?? "")) onTextAnswer(q.question_id, inp.value);
+    if (String(inp.value ?? "") !== String(cur ?? "")) await onTextAnswer(q.question_id, inp.value);
   }
 }
-function goQ(i) {
+async function goQ(i) {
   if (!run) return;
-  flushCurrentInput();
+  await flushCurrentInput();
   run.idx = Math.max(0, Math.min(run.qs.length - 1, i));
   run.screen = "run";
   renderRun();
   window.scrollTo({ top: 0 });
 }
-function confirmSubmit() {
+async function confirmSubmit() {
   if (!run) return;
+  await flushCurrentInput();
   const n = runAnsweredCount(), total = run.qs.length;
   if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
 }
@@ -2113,7 +2122,9 @@ function qBlockHTML(q, n) {
   }
   if (q.qtype === "fill_blank") {
     const parts = String(q.question_text).split(/_____+/);
-    const sentence = parts.map(p => esc(p)).join(`<input class="blank-in" data-fillq="${q.question_id}" value="${esc(cur ?? "")}" placeholder="……">`);
+    const blankIn = `<input class="blank-in" data-fillq="${q.question_id}" value="${esc(cur ?? "")}" placeholder="……">`;
+    // Old questions without _____ still get an answer box at the end.
+    const sentence = parts.length > 1 ? parts.map(p => esc(p)).join(blankIn) : `${esc(q.question_text)} ${blankIn}`;
     return `<div class="qblock" id="qq-${q.question_id}" data-n="${n}"><div class="qline"><span class="qno">${n}.</span> ${sentence} <span class="qmarks">[${q.marks}]</span></div></div>`;
   }
   return `<div class="qblock" id="qq-${q.question_id}" data-n="${n}"><div class="qline"><span class="qno">${n}.</span> ${esc(q.question_text)} <span class="qmarks">[${q.marks}]</span></div>
@@ -2231,7 +2242,7 @@ function renderRun() {
   const next = document.getElementById("qNext");
   if (next) next.onclick = () => goQ(run.idx + 1);
   const rev = document.getElementById("qReview");
-  if (rev) rev.onclick = () => { flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
+  if (rev) rev.onclick = async () => { await flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
   const ov = document.getElementById("palOverlay");
   const bindPal = () => ov.querySelectorAll("[data-pal]").forEach(b => b.onclick = () => goQ(+b.dataset.pal));
   bindPal();
@@ -2242,7 +2253,7 @@ function renderRun() {
   };
   document.getElementById("palClose").onclick = () => ov.classList.add("hidden");
   ov.onclick = (e) => { if (e.target === ov) ov.classList.add("hidden"); };
-  document.getElementById("palReview").onclick = () => { flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
+  document.getElementById("palReview").onclick = async () => { await flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
   updateRunMeta();
   tickTimer();
 }
@@ -2360,7 +2371,7 @@ async function showResult(attemptId, test) {
       pend: rows.filter(r => r.is_correct === null && given(r)).length,
     };
   }
-  const fmtDur43 = (s) => { s = Math.max(0, Math.round(+s || 0)); const m = Math.floor(s / 60), ss = s % 60; return m ? (ss ? `${m} मिनट ${ss} सेकंड` : `${m} मिनट`) : `${ss} सेकंड`; };
+  const fmtDur43 = (s) => { s = Math.max(0, Math.round(+s || 0)); const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; if (d) return `${d} दिन${h ? ` ${h} घंटे` : ""}`; if (h) return `${h} घंटे${m ? ` ${m} मिनट` : ""}`; return m ? (ss ? `${m} मिनट ${ss} सेकंड` : `${m} मिनट`) : `${ss} सेकंड`; };
   const pct = attempt ? +attempt.percent || 0 : 0;
   const C = 2 * Math.PI * 44;
   $app.innerHTML = `
@@ -3255,7 +3266,7 @@ async function renderHomework() {
 }
 
 /* ---------------- Attendance ---------------- */
-let attClassId = null, attDate = null, attMarks = {};
+let attClassId = null, attDate = null, attMarks = {}, attSaved = {};
 let attMonth = null; // v44: student attendance calendar month (YYYY-MM)
 async function renderAttendance() {
   $app.innerHTML = `<div class="loading">Loading…</div>`;
@@ -3271,7 +3282,10 @@ async function renderAttendance() {
     ]);
     const ids = (enr || []).map(e => e.user_id);
     const { data: studs } = ids.length ? await sb.from("profiles").select("id,full_name").in("id", ids) : { data: [] };
-    (existing || []).forEach(r => attMarks[r.student_id] = r.status);
+    // Seed only students with no unsaved mark — otherwise a tap on
+    // Present/Absent/Leave snaps back to the saved value on re-render.
+    attSaved = {};
+    (existing || []).forEach(r => { attSaved[r.student_id] = r.status; if (!(r.student_id in attMarks)) attMarks[r.student_id] = r.status; });
     $app.innerHTML = `
       <div class="card pol-sec v45rows"><h3>✅ Mark Attendance • उपस्थिति लगाएँ</h3>
         <div class="row">
@@ -3297,7 +3311,8 @@ async function renderAttendance() {
       if (!rows.length) return toast("Mark the attendance first");
       const { error } = await sb.from("attendance").upsert(rows, { onConflict: "student_id,on_date" });
       if (error) return toast("Error: " + error.message);
-      toast(`Attendance saved ✅ (${rows.length} students)`); attMarks = {}; renderAttendance();
+      const changed = rows.filter(([sid, st]) => attSaved[sid] !== st).length;
+      toast(changed ? `Attendance saved ✅ (${changed} changed)` : "Attendance saved ✅ (no change)"); attMarks = {}; renderAttendance();
     };
     document.getElementById("att_csv").onclick = () => {
       if (!(studs || []).length) return toast("No students to download");
