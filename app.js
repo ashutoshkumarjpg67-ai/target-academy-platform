@@ -1664,8 +1664,8 @@ async function renderTests() {
   const testClassIds = myClasses.map(c => c.id);
   const testClsQ = (qb) => testClassIds.length ? qb.in("class_id", testClassIds) : qb.eq("class_id", -1);
   const testsQ = isStaff()
-    ? sb.from("tests").select("id,class_id,subject_id,chapter_id,title,duration_minutes,total_marks,negative_marking,max_attempts,instant_feedback,status,created_at").order("created_at", { ascending: false })
-    : testClsQ(sb.from("tests").select("id,class_id,subject_id,chapter_id,title,duration_minutes,total_marks,negative_marking,max_attempts,instant_feedback,status,created_at").eq("status", "published").order("created_at", { ascending: false }));
+    ? sb.from("tests").select("id,class_id,subject_id,chapter_id,title,duration_minutes,total_marks,negative_marking,max_attempts,instant_feedback,status,starts_at,ends_at,created_at").order("created_at", { ascending: false })
+    : testClsQ(sb.from("tests").select("id,class_id,subject_id,chapter_id,title,duration_minutes,total_marks,negative_marking,max_attempts,instant_feedback,status,starts_at,ends_at,created_at").eq("status", "published").order("created_at", { ascending: false }));
   const [{ data: tests }, { data: myAttempts }, { data: allQ }, { data: subjects }, { data: chapters }] = await Promise.all([
     testsQ,
     sb.from("test_attempts").select("id,test_id,status,score,max_score,percent,passed,submitted_at,started_at").eq("student_id", me.id).order("started_at", { ascending: false }),
@@ -1697,12 +1697,26 @@ async function renderTests() {
     // an older submitted attempt when attempts overlap.
     const submitted = mine.filter(a => a.status !== "in_progress").sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
     const live = mine.find(a => a.status === "in_progress");
+    // Scheduled live test (v65): optional start/end window. No window = old behaviour.
+    const sched = (t) => {
+      const now = Date.now();
+      const st = t.starts_at ? new Date(t.starts_at).getTime() : null;
+      const en = t.ends_at ? new Date(t.ends_at).getTime() : null;
+      const fmt = (x) => new Date(x).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+      if (st && en) return { state: now < st ? "upcoming" : now > en ? "ended" : "live", text: `🕒 ${fmt(st)} – ${fmt(en)}` };
+      if (st) return { state: now < st ? "upcoming" : "live", text: `🕒 Starts ${fmt(st)}` };
+      if (en) return { state: now > en ? "ended" : "live", text: `🕒 Ends ${fmt(en)}` };
+      return null;
+    };
+    const sc = sched(t);
+    const inWindow = !sc || sc.state === "live";
     return `<div class="item"><div>
         <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(t.duration_minutes) ? "Unlimited time" : `${t.duration_minutes} min`} • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}</div>
+        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(t.duration_minutes) ? "Unlimited time" : `${t.duration_minutes} min`} • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}${sc ? `<br>${sc.text}` : ""}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
         <span class="pill ${t.status === "published" ? "green" : "gold"}">${t.status === "published" ? "उपलब्ध • Live" : t.status === "draft" ? "ड्राफ़्ट • Draft" : esc(t.status)}</span>
+        ${sc && t.status === "published" ? `<span class="pill ${sc.state === "live" ? "green" : sc.state === "upcoming" ? "gold" : "red"}">${sc.state === "live" ? "🔴 Live now" : sc.state === "upcoming" ? "⏳ Upcoming" : "⛔ Ended"}</span>` : ""}
         ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
             <button class="light small" data-tpreview="${t.id}">👁 Preview</button>
             <button class="light small" data-tinst="${t.id}:${t.instant_feedback ? 1 : 0}" title="Turn Practice Mode on/off">⚡ ${t.instant_feedback ? "ON" : "OFF"}</button>
@@ -1711,7 +1725,7 @@ async function renderTests() {
             <button class="danger small" data-tdel="${t.id}">✕</button></div>`
           : t.status === "published" ? (live
             ? `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
-            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(!t.max_attempts || submitted.length < t.max_attempts) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake (${submitted.length}/${t.max_attempts})` : "🔁 Retake") : "▶ Start Test"}</button>` : ""}`) : ""}
+            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(inWindow && (!t.max_attempts || submitted.length < t.max_attempts)) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake (${submitted.length}/${t.max_attempts})` : "🔁 Retake") : "▶ Start Test"}</button>` : (!inWindow ? `<span class="muted" style="font-size:12px">${sc.state === "upcoming" ? "⏳ " + sc.text : "⛔ Test khatm ho gaya"}</span>` : "")}`) : ""}
       </div></div>`;
   };
   const groupedTests = () => {
@@ -1746,6 +1760,11 @@ async function renderTests() {
         <div><label>Pass %</label><input id="t_pass" type="number" value="33" min="0" max="100"></div>
         <div><label>Attempts (0 = Unlimited)</label><input id="t_max" type="number" value="0" min="0"></div>
       </div>
+      <div class="row">
+        <div><label>🕒 Start time (optional — live test)</label><input id="t_start" type="datetime-local"></div>
+        <div><label>🕒 End time (optional — auto-submit)</label><input id="t_end" type="datetime-local"></div>
+      </div>
+      <p class="muted">Agar start/end time doge to test sirf usi window me chalega — time khatm hote hi test apne aap submit ho jayega। Khali chhoda to test pehle jaise hamesha khula rahega।</p>
       <label class="checkrow"><input type="checkbox" id="t_instant" checked><span><b>⚡ Practice Mode</b> — as soon as an option is chosen, the student sees correct/wrong + the explanation (the first click counts as the answer; it cannot be changed later)</span></label>
       <label>Choose Questions (from the Question Bank)</label>
       <div id="t_picker" style="max-height:260px; overflow:auto"></div>
@@ -1776,6 +1795,8 @@ async function renderTests() {
       const picked = [...picker.querySelectorAll(".tq:checked")].map(x => +x.value);
       if (!title) { err.textContent = "Enter the test name"; return; }
       if (!picked.length) { err.textContent = "Choose at least one question"; return; }
+      const stV = document.getElementById("t_start").value, enV = document.getElementById("t_end").value;
+      if (stV && enV && new Date(enV) <= new Date(stV)) { err.textContent = "End time start time se baad hona chahiye"; return; }
       const total = picked.reduce((s, id) => s + (+((allQ || []).find(q => q.id === id) || {}).marks || 1), 0);
       const pickedQs = picked.map(id => (allQ || []).find(q => q.id === id)).filter(Boolean);
       const subjIds = [...new Set(pickedQs.map(q => q.subject_id).filter(Boolean))];
@@ -1789,6 +1810,8 @@ async function renderTests() {
         passing_percent: +document.getElementById("t_pass").value || 33,
         max_attempts: (() => { const v = document.getElementById("t_max").value.trim(); return v === "" ? 0 : Math.max(0, +v); })(),
         instant_feedback: document.getElementById("t_instant").checked,
+        starts_at: stV ? new Date(stV).toISOString() : null,
+        ends_at: enV ? new Date(enV).toISOString() : null,
         total_marks: total, status: "draft",
       }).select().single();
       if (error) { err.textContent = error.message; return; }
@@ -1962,7 +1985,7 @@ async function previewTest(test) {
     <div class="card">
       <button class="light small" id="pv_back">← Back to Tests</button>
       <h3 style="margin-top:10px">👁 ${esc(test.title)}</h3>
-      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(test.duration_minutes) ? "Unlimited time" : `${test.duration_minutes} min`} • ${test.total_marks} marks • ${ordered.length} questions • ${esc(test.status)}</p>
+      <p class="muted">${esc((myClasses.find(c => c.id === test.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(test.duration_minutes) ? "Unlimited time" : `${test.duration_minutes} min`} • ${test.total_marks} marks • ${ordered.length} questions • ${esc(test.status)}${test.starts_at || test.ends_at ? ` • 🕒 ${test.starts_at ? "Starts " + new Date(test.starts_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}${test.starts_at && test.ends_at ? " – " : ""}${test.ends_at ? "Ends " + new Date(test.ends_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}` : ""}</p>
       <p class="muted">This is for checking only — no attempt is created here and no result is saved. The correct answer is shown in green.</p>
     </div>
     ${ordered.map((q, i) => {
@@ -2041,6 +2064,8 @@ async function startTest(test, myAttempts) {
   if (startingTest) return;
   startingTest = true;
   try {
+  if (test.starts_at && Date.now() < new Date(test.starts_at).getTime()) { toast("⏳ Ye test " + new Date(test.starts_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + " se shuru hoga"); return; }
+  if (test.ends_at && Date.now() > new Date(test.ends_at).getTime()) { toast("⛔ Is test ka time khatm ho gaya"); return; }
   let attempt = (myAttempts || []).find(a => a.status === "in_progress");
   if (!attempt) {
     const doneCount = (myAttempts || []).filter(a => a.status !== "in_progress").length;
@@ -2062,7 +2087,12 @@ async function startTest(test, myAttempts) {
     answers: new Map((saved || []).map(r => [r.question_id, r.answer])),
     review: new Set((saved || []).filter(r => r.marked_for_review).map(r => r.question_id)),
     feedback: new Map(),
-    endsAt: isUnlimitedTime(test.duration_minutes) ? null : new Date(attempt.started_at).getTime() + test.duration_minutes * 60000,
+    endsAt: (() => {
+      const durEnd = isUnlimitedTime(test.duration_minutes) ? null : new Date(attempt.started_at).getTime() + test.duration_minutes * 60000;
+      const schedEnd = test.ends_at ? new Date(test.ends_at).getTime() : null;
+      if (durEnd && schedEnd) return Math.min(durEnd, schedEnd);
+      return durEnd || schedEnd;
+    })(),
     timer: null,
   };
   if (test.instant_feedback) {
