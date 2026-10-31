@@ -303,6 +303,7 @@ function renderShell() {
     { id: "attendance", ic: "✅", label: "Attendance" },
     { id: "timetable", ic: "🗓️", label: "Timetable" },
     { id: "studio", ic: "🎬", label: "Video Studio" },
+    { id: "grading", ic: "✏️", label: "Grading" },
   ];
   const byId = {};
   [...tabs, ...extraTabs].forEach(t => { byId[t.id] = t; });
@@ -310,7 +311,7 @@ function renderShell() {
     ["मुख्य • Main", ["home", "study", "tests", "fees"]],
     ["पढ़ाई • Learn", ["homework", "live", "timetable", ...(isStaff() ? [] : ["studio"])]],
     ["सहायता और प्रगति • Help & Progress", ["doubts", "tutor", "top", "attendance"]],
-    ...(isStaff() ? [["स्टाफ़ • Staff", ["manage", "studio", ...(profile.role === "admin" ? ["users"] : [])]]] : []),
+    ...(isStaff() ? [["स्टाफ़ • Staff", ["manage", "grading", "studio", ...(profile.role === "admin" ? ["users"] : [])]]] : []),
     ["खाता • Account", ["more"]],
   ];
   const sideHTML = sideGroups.map(([label, ids]) => {
@@ -326,7 +327,7 @@ function renderShell() {
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   setPageHead();
-  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, more: renderMore, profile: renderProfile }[tab] || renderHome)();
+  ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, grading: renderGrading, more: renderMore, profile: renderProfile }[tab] || renderHome)();
 }
 
 /* ---------------- Home (EduPlus-style dashboard) ---------------- */
@@ -1883,6 +1884,68 @@ async function renderTestResults(testId) {
   host.scrollIntoView({ behavior: "smooth" });
 }
 
+/* ----- Teacher grading (v64): manually-checked answers ----- */
+/* MCQ-multi, short aur descriptive jawab auto-score nahi hote — ye screen
+   staff ko pending jawab dikhati hai aur marks dene ka rasta deti hai.
+   Marks dene par grade_response RPC student ka total bhi dobara gin deta hai.
+   Poore marks = Sahi; kam (aanshik) marks par jawab review me Wrong dikhega
+   par marks total me jud jayenge. */
+let gradingFilter = "pending";
+function gradeAnsText(a) {
+  if (a === null || a === undefined) return "— (not given)";
+  if (Array.isArray(a)) return a.length ? a.map(x => String(x)).join(", ") : "— (not given)";
+  if (typeof a === "object") return JSON.stringify(a);
+  return String(a);
+}
+async function renderGrading() {
+  if (!isStaff()) { $app.innerHTML = `<div class="card"><p>Staff only.</p></div>`; return; }
+  $app.innerHTML = `<div class="card"><div class="loading">Loading grading queue…</div></div>`;
+  const { data: rows, error } = await sb.rpc("get_pending_grading", { p_status: gradingFilter });
+  if (error) { $app.innerHTML = `<div class="card"><p>Error: ${esc(error.message)}</p></div>`; return; }
+  const list = rows || [];
+  $app.innerHTML = `
+    <div class="card">
+      <h3 style="margin-top:0">✏️ Grading • जाँच — ${gradingFilter === "pending" ? "Pending" : "Graded"}</h3>
+      <p class="muted">MCQ-multi, short aur descriptive jawab yahan check hote hain. Marks dene ke baad student ka total apne aap update ho jayega.</p>
+      <div class="mtabs">
+        <button class="chip ${gradingFilter === "pending" ? "on" : ""}" data-gf="pending">⏳ Pending</button>
+        <button class="chip ${gradingFilter === "graded" ? "on" : ""}" data-gf="graded">✅ Graded</button>
+      </div>
+    </div>
+    ${list.length ? list.map((r, i) => `
+    <div class="card">
+      <div class="t">${esc(r.student_name || "Student")} • ${esc(r.test_title)}</div>
+      <div class="s">${r.submitted_at ? new Date(r.submitted_at).toLocaleString("en-IN") : ""} • ${esc(r.qtype)} • ${r.q_marks} marks${r.is_correct !== null ? ` • abhi: ${r.marks_awarded} marks` : ""}</div>
+      <div style="margin-top:10px; font-weight:700">Q. ${esc(r.question_text)}</div>
+      ${Array.isArray(r.options) && r.options.length ? `<div style="margin-top:8px">${r.options.map(o => `<div style="padding:8px 10px; border-radius:10px; border:1.5px solid #e3e8f2; margin-top:6px"><b>${esc(o.key)}.</b> ${esc(o.text)}</div>`).join("")}</div>` : ""}
+      <div style="margin-top:10px; padding:10px 12px; border-radius:10px; background:#fdf6d8; border:1.5px solid var(--gold)"><b>Student ka jawab:</b> ${esc(gradeAnsText(r.my_answer))}</div>
+      <div class="row" style="margin-top:12px; gap:8px; flex-wrap:wrap; align-items:center">
+        <input type="number" id="gr-marks-${i}" min="0" max="${r.q_marks}" step="0.5" value="${r.is_correct !== null ? r.marks_awarded : r.q_marks}" style="width:110px">
+        <span class="muted">/ ${r.q_marks} marks</span>
+        <button class="light small" data-gr-full="${i}">✅ Full marks</button>
+        <button class="light small" data-gr-zero="${i}">❌ 0 marks</button>
+        <button class="gold small" data-gr-save="${i}">💾 Save marks</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Poore marks = Sahi ✅, kam marks = aanshik (result me Wrong dikhega par marks total me jud jayenge)।</p>
+    </div>`).join("") : `<div class="card"><p class="muted">${gradingFilter === "pending" ? "Koi pending jawab nahi hai — jab koi student MCQ-multi, short ya descriptive jawab dega, to wo yahan dikhega।" : "Abhi koi graded jawab nahi hai।"}</p></div>`}`;
+  $app.querySelectorAll("[data-gf]").forEach(b => b.onclick = () => { gradingFilter = b.dataset.gf; renderGrading(); });
+  list.forEach((r, i) => {
+    const inp = document.getElementById(`gr-marks-${i}`);
+    $app.querySelector(`[data-gr-full="${i}"]`).onclick = () => { inp.value = r.q_marks; };
+    $app.querySelector(`[data-gr-zero="${i}"]`).onclick = () => { inp.value = 0; };
+    $app.querySelector(`[data-gr-save="${i}"]`).onclick = async (e) => {
+      const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Saving…";
+      const m = Number(inp.value);
+      if (isNaN(m) || m < 0 || m > Number(r.q_marks)) { toast(`Marks 0 se ${r.q_marks} ke beech hone chahiye`); btn.disabled = false; btn.textContent = "💾 Save marks"; return; }
+      const { data, error } = await sb.rpc("grade_response", { p_attempt_id: r.attempt_id, p_question_id: r.question_id, p_marks: m });
+      if (error) { toast("Error: " + error.message); btn.disabled = false; btn.textContent = "💾 Save marks"; return; }
+      const t = data && data[0];
+      toast(`✅ Marks save ho gaye — naya total: ${t ? `${t.score}/${t.max_score} (${t.percent}%)` : ""}`);
+      renderGrading();
+    };
+  });
+}
+
 /* ----- Staff preview of a test (questions + answers, no attempt created) ----- */
 async function previewTest(test) {
   if (!test) return;
@@ -2523,6 +2586,7 @@ async function renderMore() {
     ${isStaff() ? `<div class="card"><h3>🛠 बनाएँ और प्रबंधन • Create & Manage</h3>
       <div class="hubrow" data-nav="studio"><span class="hic" style="background:#fdecea">🎬</span><span class="hub-tx"><span class="hub-t">Video Studio</span><span class="hub-d">YouTube lesson → notes & MCQs</span></span><span class="arr">›</span></div>
       <div class="hubrow" data-nav="manage"><span class="hic" style="background:#e8f1fe">🛠️</span><span class="hub-tx"><span class="hub-t">Manage</span><span class="hub-d">Classes, subjects, questions & content</span></span><span class="arr">›</span></div>
+      <div class="hubrow" data-nav="grading"><span class="hic" style="background:#fff4cf">✏️</span><span class="hub-tx"><span class="hub-t">Grading</span><span class="hub-d">Check MCQ-multi, short & descriptive answers</span></span><span class="arr">›</span></div>
       ${profile.role === "admin" ? `<div class="hubrow" data-nav="users"><span class="hic" style="background:#fff4cf">👥</span><span class="hub-tx"><span class="hub-t">Users</span><span class="hub-d">Students, teachers & enrollments</span></span><span class="arr">›</span></div>` : ""}
     </div>` : ""}
     <div class="card"><h3>👤 खाता • Account</h3>
