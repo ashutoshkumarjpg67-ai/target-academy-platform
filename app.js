@@ -44,6 +44,9 @@ function toast(msg, ms = 2600) {
   $toast.textContent = msg; $toast.classList.remove("hidden");
   clearTimeout(toast._t); toast._t = setTimeout(() => $toast.classList.add("hidden"), ms);
 }
+// v66: weak mobile data par ek failed request ka matlab submit-fail nahi
+// hona chahiye — retries ke liye chhota delay helper.
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const isStaff = () => profile && (profile.role === "admin" || profile.role === "teacher");
 
 
@@ -2128,26 +2131,44 @@ function tickTimer() {
 }
 async function saveAnswer(qid) {
   if (!run) return null;
-  const { error } = await sb.from("attempt_responses").upsert({
-    attempt_id: run.attempt.id, question_id: qid,
-    answer: run.answers.get(qid) ?? null,
-    marked_for_review: run.review.has(qid),
-    answered_at: new Date().toISOString(),
-  }, { onConflict: "attempt_id,question_id" });
-  if (error) toast("उत्तर save नहीं हुआ: " + error.message);
-  return error || null;
+  // v66: kamzor network par ek hi blip se save fail na ho — 3 baar retry
+  // (backoff ke saath). Sirf teeno fail hone par hi error wapas do.
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(600 * attempt);
+    try {
+      const { error } = await sb.from("attempt_responses").upsert({
+        attempt_id: run.attempt.id, question_id: qid,
+        answer: run.answers.get(qid) ?? null,
+        marked_for_review: run.review.has(qid),
+        answered_at: new Date().toISOString(),
+      }, { onConflict: "attempt_id,question_id" });
+      if (!error) return null;
+      lastErr = error;
+    } catch (e) { lastErr = e; }
+  }
+  toast("उत्तर save नहीं हुआ: " + (lastErr && lastErr.message ? lastErr.message : "network problem"));
+  return lastErr;
 }
 // Submit se pehle local me maujood saare jawab dobara DB me save karo.
 // Agar koi bhi save fail ho, submit roko — warna jawab khamoshi me
 // kho jayenge aur score phir 0 banega (Kajal, attempt 50, 28 Oct).
 async function flushAllAnswers() {
   if (!run) return null;
-  for (const [qid, ans] of run.answers) {
-    if (ans === undefined || ans === null || ans[0] === undefined || ans[0] === null || String(ans[0]).trim() === "") continue;
-    const err = await saveAnswer(qid);
-    if (err) return err;
+  // v66: pehle 64 jawab EK-KE-BAAD-EK save hote the — slow network par
+  // 64 round trips me se ek bhi fail hota to submit ruk jata tha.
+  // Ab 6-6 parallel save hote hain (har ek me retry bhi hai), isliye
+  // submit bahut tez aur bahut kam fail hoga.
+  const qids = [...run.answers.keys()].filter(qid => {
+    const a = run.answers.get(qid);
+    return a !== undefined && a !== null && a[0] !== undefined && a[0] !== null && String(a[0]).trim() !== "";
+  });
+  let firstErr = null;
+  for (let i = 0; i < qids.length; i += 6) {
+    const results = await Promise.all(qids.slice(i, i + 6).map(qid => saveAnswer(qid)));
+    for (const e of results) if (e && !firstErr) firstErr = e;
   }
-  return null;
+  return firstErr;
 }
 function runAnsweredCount() {
   if (!run) return 0;
@@ -2200,16 +2221,23 @@ async function goQ(i) {
   renderRun();
   window.scrollTo({ top: 0 });
 }
+// v66: double-tap se do submit na chale — ek submit chalu ho to dusra roko.
+let submitting = false;
 async function confirmSubmit() {
-  if (!run) return;
+  if (!run || submitting) return;
   await flushCurrentInput();
   const n = runAnsweredCount(), total = run.qs.length;
   // Never submit a completely empty test — a mistaken tap used to score 0.
   if (n === 0) { toast("Koi jawab nahi diya — pehle kam se kam ek prashn ka jawab dijiye"); return; }
   // Saare jawab DB me pakke kar lo; agar save fail ho to submit mat karo.
   const saveErr = await flushAllAnswers();
-  if (saveErr) { toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message); return; }
-  if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) finishTest(false);
+  if (saveErr) { toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message + ". Network check karke dobara Submit dabayein."); return; }
+  if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) {
+    submitting = true;
+    const btn = document.getElementById("finalSubmit");
+    if (btn) { btn.disabled = true; btn.textContent = "Submitting…"; }
+    try { await finishTest(false); } finally { submitting = false; }
+  }
 }
 const MATCH_PREFIX = "Match the following";
 function isMatchQ(q) { return q.qtype === "mcq_single" && (q.question_text || "").startsWith(MATCH_PREFIX); }
@@ -2295,7 +2323,11 @@ async function onPickOption(qid, key) {
   }
   if (key === null || String((run.answers.get(qid) || [])[0]) === String(key)) run.answers.delete(qid);
   else run.answers.set(qid, [key]);
-  await saveAnswer(qid);
+  // v66: normal test me option dabate hi UI turant badlo — save background
+  // me hota rahega (flush at submit dobara save karta hai, isliye kuch
+  // kho nahi sakta). Practice Mode me await rehta hai kyunki wahan
+  // reveal_answer ko saved row chahiye hota hai.
+  saveAnswer(qid);
   refreshQBlock(q);
   updateRunMeta();
 }
@@ -2303,7 +2335,7 @@ async function onTextAnswer(qid, value) {
   if (!run) return;
   const v = value ?? "";
   if (String(v).trim() === "") run.answers.delete(qid); else run.answers.set(qid, [v]);
-  await saveAnswer(qid);
+  saveAnswer(qid); // v66: background save — jawab local me safe hai, submit par flush dobara save karega
   updateRunMeta();
 }
 function runHeadHTML() {
@@ -2406,13 +2438,40 @@ async function finishTest(auto) {
   clearInterval(run.timer);
   if (auto) {
     const saveErr = await flushAllAnswers();
-    if (saveErr) { toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message); return; }
+    if (saveErr) {
+      toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message);
+      run.screen = "review"; renderRun();
+      return;
+    }
   }
-  const { data, error } = await sb.rpc("submit_attempt", { p_attempt_id: attempt.id });
+  // v66: submit RPC 3 baar retry karo. Kamzor network par pehli call
+  // server par submit hone KE BAAD bhi timeout ho sakti hai — isliye
+  // error par attempt ki status dobara check karo: agar server par
+  // 'submitted' hai to result dikhao, fail mat batao. ('already
+  // submitted' error ka matlab bhi yahi hota hai.)
+  let data = null, error = null;
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) await sleep(800 * i);
+    const res = await sb.rpc("submit_attempt", { p_attempt_id: attempt.id });
+    data = res.data; error = res.error;
+    if (!error) break;
+    const chk = await sb.from("test_attempts").select("id,status").eq("id", attempt.id).single();
+    if (chk.data && chk.data.status === "submitted") { data = chk.data; error = null; break; }
+    if (error.message && /already submitted/i.test(error.message)) break;
+  }
+  if (error) {
+    // v66: fail hone par test screen aur saare local jawab BACHAYE rakho —
+    // pehle run = null kar dena jawab kho deta tha. Student palette par
+    // wapas jata hai aur dobara Submit daba sakta hai.
+    toast("Network problem — submit nahi ho paya. Aapke jawab safe hain, dobara Submit dabayein.", 4000);
+    run.screen = "review"; renderRun();
+    if (!run.endsAt) { run.timer = setInterval(tickTimer, 500); tickTimer(); }
+    return;
+  }
+  const attemptId = data.id;
   run = null;
-  if (error) { toast("Problem submitting: " + error.message); tab = "tests"; renderShell(); return; }
   if (auto) toast("⏰ Time's up — the test was submitted automatically");
-  showResult(data.id, test);
+  showResult(attemptId, test);
 }
 
 /* ----- Result + review ----- */
