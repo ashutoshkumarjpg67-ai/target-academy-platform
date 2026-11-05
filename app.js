@@ -2215,7 +2215,10 @@ async function flushCurrentInput() {
 }
 async function goQ(i) {
   if (!run) return;
-  await flushCurrentInput();
+  // v67: navigation turant — likha hua jawab flushCurrentInput ke
+  // synchronous hisse me local save ho jata hai; network save background
+  // me chalta rahega. Pehle har Next tap network ka wait karta tha.
+  flushCurrentInput();
   run.idx = Math.max(0, Math.min(run.qs.length - 1, i));
   run.screen = "run";
   renderRun();
@@ -2314,6 +2317,10 @@ async function onPickOption(qid, key) {
     if (key === null) return;
     if (run.answers.has(qid) && run.answers.get(qid) !== null) return; // first answer locks
     run.answers.set(qid, [key]);
+    // v67: pehle turant selected dikhao, phir server se sahi/galat lao —
+    // tap par ab network ka wait nahi.
+    refreshQBlock(q);
+    updateRunMeta();
     await saveAnswer(qid);
     const { data } = await sb.rpc("reveal_answer", { p_attempt_id: run.attempt.id, p_question_id: qid });
     if (data && data[0]) run.feedback.set(qid, data[0]);
@@ -2382,16 +2389,16 @@ function renderRun() {
       </div>
     </div>`;
   bindBlockEl(document.getElementById("qq-" + q.question_id), q);
-  document.getElementById("markRev").onchange = async (e) => {
+  document.getElementById("markRev").onchange = (e) => {
     if (e.target.checked) run.review.add(q.question_id); else run.review.delete(q.question_id);
-    await saveAnswer(q.question_id);
+    saveAnswer(q.question_id); // v67: background save — tick turant lage
   };
   const prev = document.getElementById("qPrev");
   if (prev) prev.onclick = () => goQ(run.idx - 1);
   const next = document.getElementById("qNext");
   if (next) next.onclick = () => goQ(run.idx + 1);
   const rev = document.getElementById("qReview");
-  if (rev) rev.onclick = async () => { await flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
+  if (rev) rev.onclick = () => { flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
   const ov = document.getElementById("palOverlay");
   const bindPal = () => ov.querySelectorAll("[data-pal]").forEach(b => b.onclick = () => goQ(+b.dataset.pal));
   bindPal();
@@ -2402,7 +2409,7 @@ function renderRun() {
   };
   document.getElementById("palClose").onclick = () => ov.classList.add("hidden");
   ov.onclick = (e) => { if (e.target === ov) ov.classList.add("hidden"); };
-  document.getElementById("palReview").onclick = async () => { await flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
+  document.getElementById("palReview").onclick = () => { flushCurrentInput(); run.screen = "review"; renderRun(); window.scrollTo({ top: 0 }); };
   updateRunMeta();
   tickTimer();
 }
