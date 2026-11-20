@@ -352,7 +352,53 @@ function wireQA() {
   $app.querySelectorAll("[data-go]").forEach(el => el.onclick = () => { tab = el.dataset.go; renderShell(); });
 }
 
+/* ---------------- Class 12 Final Exam countdown (v69) ----------------
+   Student home banner: live countdown to the Bihar Board Intermediate
+   final exam, 1 February 2027 00:00 IST. Days use Math.ceil so the
+   "days to go" number matches calendar days (73 on 20 Nov 2026);
+   hours/minutes/seconds tick live within the current day. Once the
+   exam starts the banner switches to a best-wishes state. */
+const EXAM_CD_TARGET = new Date("2027-02-01T00:00:00+05:30").getTime();
+let examCdTimer = null;
+function examCdParts() {
+  const diff = EXAM_CD_TARGET - Date.now();
+  if (diff <= 0) return null;
+  return {
+    d: Math.ceil(diff / 86400000),
+    h: Math.floor((diff % 86400000) / 3600000),
+    m: Math.floor((diff % 3600000) / 60000),
+    s: Math.floor((diff % 60000) / 1000),
+  };
+}
+function examCdHTML() {
+  const p = examCdParts();
+  if (!p) return `<div class="exam-cd done"><span class="ec-ic">🎉</span><div class="ec-tt"><div class="ec-title">Class 12 Final Exam Started</div><div class="ec-sub">All the Best! Give it your best shot.</div></div></div>`;
+  return `<div class="exam-cd" id="examCd">
+    <div class="ec-head"><span class="ec-ic">🎯</span><div class="ec-tt"><div class="ec-title">Class 12 Final Exam</div><div class="ec-sub">1 February 2027 • Bihar Board</div></div><span class="ec-badge">FINAL EXAM</span></div>
+    <div class="ec-tiles">
+      <div class="ec-tile"><div class="ec-num" id="ecD">${p.d}</div><div class="ec-lab">Days</div></div>
+      <div class="ec-tile"><div class="ec-num" id="ecH">${String(p.h).padStart(2, "0")}</div><div class="ec-lab">Hours</div></div>
+      <div class="ec-tile"><div class="ec-num" id="ecM">${String(p.m).padStart(2, "0")}</div><div class="ec-lab">Minutes</div></div>
+      <div class="ec-tile"><div class="ec-num" id="ecS">${String(p.s).padStart(2, "0")}</div><div class="ec-lab">Seconds</div></div>
+    </div>
+    <div class="ec-foot">days to go — every day counts, keep revising!</div>
+  </div>`;
+}
+function startExamCountdown() {
+  if (examCdTimer) { clearInterval(examCdTimer); examCdTimer = null; }
+  const tick = () => {
+    const el = document.getElementById("examCd");
+    if (!el) { clearInterval(examCdTimer); examCdTimer = null; return; }
+    const p = examCdParts();
+    if (!p) { el.outerHTML = examCdHTML(); clearInterval(examCdTimer); examCdTimer = null; return; }
+    const set = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
+    set("ecD", p.d); set("ecH", String(p.h).padStart(2, "0")); set("ecM", String(p.m).padStart(2, "0")); set("ecS", String(p.s).padStart(2, "0"));
+  };
+  examCdTimer = setInterval(tick, 1000);
+}
+
 async function renderHome() {
+  if (examCdTimer) { clearInterval(examCdTimer); examCdTimer = null; }
   $app.innerHTML = `<div class="loading">Loading…</div>`;
   if (!isStaff()) {
     // Phase 2: enrolments first, then class-scoped queries (previously the
@@ -409,6 +455,7 @@ async function renderHome() {
         <span class="dh-chev">›</span>
       </div>
       <div class="motto"><span class="mo-ic">🔔</span><span>मेहनत आज की पहचान है, कल यही सफलता बनेगी।</span></div>
+      ${examCdHTML()}
       <div class="stile-grid">
         <div class="stile" data-go="timetable"><span class="si2" style="background:#e8f1fe">📅</span><div class="sl">आज की क्लास</div><div class="sv">${todayTT.length ? todayTT.length + " क्लास" : "कोई नहीं"}</div><div class="ssub">${todayTT.length ? esc(subById[todayTT[0].subject_id]?.name || "क्लास") + " • " + String(todayTT[0].starts_at || "").slice(0, 5) : "आज कोई क्लास नहीं है"}</div></div>
         <div class="stile" data-go="tests"><span class="si2" style="background:#e2f4ec">📝</span><div class="sl">अगली परीक्षा</div><div class="sv">${nextTest ? (nextTest.starts_at ? new Date(nextTest.starts_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" }) : "तैयार है") : "—"}</div><div class="ssub">${nextTest ? esc(nextTest.title) : "कोई आगामी टेस्ट नहीं"}</div></div>
@@ -432,6 +479,7 @@ async function renderHome() {
         ${!hwPending && !(anns || []).length ? `<p class="muted" style="margin:4px 0 0">कोई नया अपडेट नहीं है।</p>` : ""}
       </div>`;
     wireQA();
+    startExamCountdown();
     document.getElementById("dashHead").onclick = () => { tab = "profile"; renderShell(); };
     $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
     $app.querySelectorAll("[data-join]").forEach(b => b.onclick = () => window.open(b.dataset.join, "_blank"));

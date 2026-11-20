@@ -973,3 +973,28 @@ body{overflow-x:clip}
   .sp-name{font-size:24px}
   #tabbar button{font-size:11px; padding:8px 1px}
 }
+
+/* ---------- Class 12 Final Exam countdown (v69) ---------- */
+.exam-cd{
+  position:relative; overflow:hidden; color:#fff;
+  background:linear-gradient(130deg,var(--navy) 8%,var(--navy2) 55%,var(--navy3) 115%);
+  border-radius:22px; padding:20px 18px 16px; margin-bottom:16px;
+  box-shadow:var(--shadow); border:1px solid rgba(242,183,5,.35);
+  animation:rise .35s ease both;
+}
+.exam-cd::after{content:""; position:absolute; right:-38px; top:-38px; width:150px; height:150px; border-radius:50%;
+  background:radial-gradient(circle, rgba(242,183,5,.28), transparent 70%);}
+.ec-head{display:flex; align-items:center; gap:11px; position:relative; z-index:1}
+.ec-ic{font-size:26px; line-height:1}
+.ec-tt{flex:1; min-width:0}
+.ec-title{font-size:18px; font-weight:900; letter-spacing:.3px}
+.ec-sub{font-size:12.5px; color:#bcd2f2; margin-top:2px; font-weight:600}
+.ec-badge{background:linear-gradient(140deg,var(--gold2),var(--gold)); color:var(--navy);
+  font-size:10.5px; font-weight:900; letter-spacing:1px; padding:5px 9px; border-radius:999px; white-space:nowrap}
+.ec-tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin-top:15px; position:relative; z-index:1}
+.ec-tile{background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.16); border-radius:14px; padding:10px 4px 9px; text-align:center}
+.ec-num{font-size:29px; font-weight:900; line-height:1; color:var(--gold2); font-variant-numeric:tabular-nums}
+.ec-lab{font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#cfe0f7; margin-top:5px}
+.ec-foot{margin-top:13px; text-align:center; font-size:12.5px; font-weight:700; color:#ffe9a8; position:relative; z-index:1}
+.exam-cd.done{display:flex; align-items:center; gap:12px}
+.exam-cd.done .ec-title{font-size:17px}
