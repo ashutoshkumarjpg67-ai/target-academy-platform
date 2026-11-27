@@ -3926,8 +3926,11 @@ async function renderDoubts() {
 
 /* ---------------- Homework ---------------- */
 let hwClassId = null, hwOpenId = null, hwSubmitId = null;
+let hwViewTab = "list"; // list | create (staff)
+let hwFilterStatus = "all"; // all | pending | submitted | reviewed
+
 async function renderHomework() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("dashboard");
   const hwClassIds = myClasses.map(c => c.id);
   const hwClsQ = (qb) => hwClassIds.length ? qb.in("class_id", hwClassIds) : qb.eq("class_id", -1);
   const [{ data: assigns }, { data: subs }, { data: subjects }] = await Promise.all([
@@ -3941,75 +3944,150 @@ async function renderHomework() {
   ]);
   const subName = (id) => (subjects || []).find(s => s.id === id)?.name || "";
   const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
-  const list = (assigns || []).filter(a => !hwClassId || a.class_id === hwClassId);
+  const allAssigns = assigns || [];
+  const byClass = allAssigns.filter(a => !hwClassId || a.class_id === hwClassId);
   const mySub = (aid) => (subs || []).find(s => s.assignment_id === aid && s.student_id === me.id);
-  const chips = `<div class="card"><h3>🎓 Choose a Class</h3><div class="row">
-    <button class="${!hwClassId ? "" : "light"}" data-hwcls="">All Classes</button>
-    ${myClasses.map(c => `<button class="${c.id === hwClassId ? "" : "light"}" data-hwcls="${c.id}">${esc(c.name)}</button>`).join("")}</div></div>`;
 
-  let staffForm = "";
-  if (isStaff()) {
-    staffForm = `<div class="card"><h3>➕ Give New Homework</h3>
-      <label>Title</label><input id="hw_title" placeholder="e.g. Chapter 5, questions 1-10">
-      <div class="row">
-        <div><label>Class</label><select id="hw_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === hwClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
-        <div><label>Subject</label><select id="hw_subject"><option value="">— None —</option>${(subjects || []).map(s => `<option value="${s.id}">${esc(s.name)} (${esc(clsName(s.class_id))})</option>`).join("")}</select></div>
-      </div>
-      <label>Instructions</label><textarea id="hw_ins" placeholder="Write clearly what is to be done…"></textarea>
-      <div class="row">
-        <div><label>Last Date to Submit</label><input id="hw_due" type="date"></div>
-        <div><label>Full Marks</label><input id="hw_marks" type="number" placeholder="e.g. 10"></div>
-      </div>
-      <div class="error" id="hw_err"></div>
-      <button class="gold" id="hw_add" style="width:100%">Send Homework</button></div>`;
-  }
+  const cntAll = byClass.length;
+  const cntSub = !isStaff() ? byClass.filter(a => !!mySub(a.id)).length : (subs || []).length;
+  const cntPend = !isStaff() ? cntAll - cntSub : (subs || []).filter(s => s.status !== "reviewed").length;
+  const cntRev = !isStaff() ? byClass.filter(a => mySub(a.id)?.status === "reviewed").length : 0;
+  const hwPct = !isStaff() && cntAll ? Math.round((cntSub / cntAll) * 100) : 0;
+
+  const list = !isStaff() ? byClass.filter(a => {
+    const m = mySub(a.id);
+    if (hwFilterStatus === "pending") return !m;
+    if (hwFilterStatus === "submitted") return !!m;
+    if (hwFilterStatus === "reviewed") return m?.status === "reviewed";
+    return true;
+  }) : byClass;
 
   const cards = list.map(a => {
     const mine = !isStaff() ? mySub(a.id) : null;
     const subCount = (subs || []).filter(s => s.assignment_id === a.id).length;
     const overdue = a.due_at && new Date(a.due_at) < new Date();
-    return `<div class="card">
-      <div style="display:flex; justify-content:space-between; gap:10px">
-        <h3 style="margin:0; font-size:16px">📒 ${esc(a.title)}</h3>
-        ${a.max_marks ? `<span class="pill gold">${a.max_marks} marks</span>` : ""}
+    const statusPill = isStaff()
+      ? `<span class="pill blue">📥 ${subCount} जमा</span>`
+      : mine
+        ? `<span class="pill ${mine.status === "reviewed" ? "green" : "gold"}">${mine.status === "reviewed" ? "🏅 चेक हो गया" : "✅ जमा किया"}</span>`
+        : `<span class="pill red">${overdue ? "⚠️ समय समाप्त" : "⏳ बाकी है"}</span>`;
+    return `<div class="fee-card">
+      <div class="fee-top">
+        <div style="min-width:0; flex:1">
+          <div class="fee-sname">📒 ${esc(a.title)}</div>
+          <div class="fee-meta">${esc(clsName(a.class_id))}${a.subject_id ? " • " + esc(subName(a.subject_id)) : ""}</div>
+        </div>
+        ${statusPill}
       </div>
-      <p class="muted" style="margin:6px 0">${esc(clsName(a.class_id))}${a.subject_id ? " • " + esc(subName(a.subject_id)) : ""}${a.due_at ? ` • Last date: <b style="color:${overdue ? "var(--bad)" : "inherit"}">${new Date(a.due_at).toLocaleDateString("en-IN")}</b>` : ""}</p>
-      ${a.instructions ? `<p style="white-space:pre-wrap; margin:6px 0">${esc(a.instructions)}</p>` : ""}
-      ${isStaff() ? `<p class="muted">Submitted: <b>${subCount}</b> students</p>
-        <button class="light small" data-hwopen="${a.id}">${hwOpenId === a.id ? "Hide Submissions" : "View Submissions"}</button>
-        <button class="danger small" data-hwdel="${a.id}">✕ Delete</button>
-        ${hwOpenId === a.id ? `<div style="margin-top:10px">${(subs || []).filter(s => s.assignment_id === a.id).map(s => `
-          <div class="item"><div style="flex:1"><div class="t" style="font-size:14px" data-subname="${s.student_id}">Student</div>
+      <div class="test-chips">
+        ${a.due_at ? `<span class="tchip ${overdue && !mine ? "tchip-bad" : ""}">📅 अंतिम तिथि: ${new Date(a.due_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}</span>` : ""}
+        ${a.max_marks ? `<span class="tchip tchip-acc">🎯 ${a.max_marks} अंक</span>` : ""}
+      </div>
+      ${a.instructions ? `<p style="white-space:pre-wrap; margin:10px 0 0; font-size:14px; color:var(--ink); line-height:1.6">${esc(a.instructions)}</p>` : ""}
+      ${isStaff() ? `
+        <div class="fee-acts">
+          <button type="button" class="small" data-hwopen="${a.id}">${hwOpenId === a.id ? "▲ सबमिशन छिपाएँ" : `📋 सबमिशन देखें (${subCount})`}</button>
+          <button type="button" class="light small" style="color:var(--bad)" data-hwdel="${a.id}">🗑 डिलीट</button>
+        </div>
+        ${hwOpenId === a.id ? `<div class="fee-ledger">${(subs || []).filter(s => s.assignment_id === a.id).map(s => `
+          <div class="item"><div style="flex:1; min-width:0"><div class="t" style="font-size:14px" data-subname="${s.student_id}">Student</div>
             <div class="s">${new Date(s.submitted_at).toLocaleString("en-IN")}${s.body ? `<br>${esc(s.body)}` : ""}</div>
-            ${s.file_path ? `<button class="small light" data-hwfile="${esc(s.file_path)}">📎 Open File</button>` : ""}
-            <div class="row" style="margin-top:6px">
-              <div><label>Marks</label><input type="number" id="gm-${s.id}" value="${s.marks ?? ""}" style="width:90px"></div>
-              <div style="flex:2"><label>Feedback</label><input id="gf-${s.id}" value="${esc(s.feedback || "")}"></div>
-              <div style="flex:0 0 auto"><button class="small gold" data-grade="${s.id}">Save</button></div>
+            ${s.file_path ? `<button type="button" class="small light" style="margin-top:6px" data-hwfile="${esc(s.file_path)}">📎 फ़ाइल खोलें</button>` : ""}
+            <div class="row" style="margin-top:8px; align-items:flex-end">
+              <div><label style="margin-top:0">अंक</label><input type="number" id="gm-${s.id}" value="${s.marks ?? ""}" style="width:90px"></div>
+              <div style="flex:2"><label style="margin-top:0">टिप्पणी</label><input id="gf-${s.id}" value="${esc(s.feedback || "")}" placeholder="बढ़िया / सुधार करें…"></div>
+              <div style="flex:0 0 auto"><button type="button" class="small gold" data-grade="${s.id}">💾 Save</button></div>
             </div></div>
-            <span class="pill ${s.status === "reviewed" ? "green" : "gold"}">${esc(s.status)}</span></div>`).join("") || `<p class="muted">No one has submitted yet.</p>`}</div>` : ""}`
-      : mine ? `<p>✅ <b>Submitted</b> — ${new Date(mine.submitted_at).toLocaleString("en-IN")}
-          ${mine.status === "reviewed" ? `<br>🏅 Marks: <b>${mine.marks ?? "—"}${a.max_marks ? " / " + a.max_marks : ""}</b>${mine.feedback ? `<br>💬 ${esc(mine.feedback)}` : ""}` : `<br><span class="muted">Awaiting teacher's check</span>`}</p>
-          ${mine.file_path ? `<button class="small light" data-hwfile="${esc(mine.file_path)}">📎 My File</button>` : ""}
-          ${a.allow_resubmit || mine.status !== "reviewed" ? `<button class="small" data-hwsub="${a.id}">Submit Again</button>` : ""}`
-      : `<p style="color:var(--bad); font-weight:700">⏳ Not submitted yet</p>
-          <button class="gold small" data-hwsub="${a.id}">📤 Submit Homework</button>`}
-      ${hwSubmitId === a.id && !isStaff() ? `<div style="margin-top:10px">
-          <label>Write your answer</label><textarea id="sub_body" placeholder="Write your homework here…">${mine ? esc(mine.body || "") : ""}</textarea>
-          <label>Photo / File (optional)</label><input id="sub_file" type="file">
+            <span class="pill ${s.status === "reviewed" ? "green" : "gold"}">${esc(s.status)}</span></div>`).join("") || `<p class="muted" style="margin:0">अभी किसी छात्र ने जमा नहीं किया है।</p>`}</div>` : ""}`
+      : mine ? `
+        <div class="test-score">
+          <div class="test-sc-row">
+            <span>✅ जमा: ${new Date(mine.submitted_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
+            ${mine.status === "reviewed" ? `<b>🏅 ${mine.marks ?? "—"}${a.max_marks ? " / " + a.max_marks : ""}</b>` : `<span class="muted" style="font-size:12px">शिक्षक जाँच करेंगे</span>`}
+          </div>
+          ${mine.feedback ? `<div class="muted" style="margin-top:4px; font-size:13px">💬 ${esc(mine.feedback)}</div>` : ""}
+        </div>
+        <div class="fee-acts">
+          ${mine.file_path ? `<button type="button" class="small light" data-hwfile="${esc(mine.file_path)}">📎 मेरी फ़ाइल</button>` : ""}
+          ${a.allow_resubmit || mine.status !== "reviewed" ? `<button type="button" class="small light" data-hwsub="${a.id}">🔁 फिर से जमा करें</button>` : ""}
+        </div>`
+      : `<div class="fee-acts"><button type="button" class="gold small" data-hwsub="${a.id}">📤 होमवर्क जमा करें</button></div>`}
+      ${hwSubmitId === a.id && !isStaff() ? `<div class="fee-ledger" style="margin-top:10px">
+          <label style="margin-top:0">अपना उत्तर लिखें</label><textarea id="sub_body" placeholder="यहाँ अपना होमवर्क लिखें…">${mine ? esc(mine.body || "") : ""}</textarea>
+          <label>फ़ोटो / फ़ाइल (वैकल्पिक)</label><input id="sub_file" type="file">
           <div class="error" id="sub_err"></div>
-          <button class="gold" id="sub_send" style="width:100%">Submit</button></div>` : ""}
+          <button type="button" class="gold" id="sub_send" style="width:100%; margin-top:6px">📤 जमा करें</button></div>` : ""}
     </div>`;
   }).join("");
 
-  $app.innerHTML = chips + staffForm + (cards || `<div class="card"><p class="muted">No homework in this class yet.</p></div>`);
+  $app.innerHTML = `
+    <div class="card fee-summary">
+      <div class="fee-sum-head">
+        <div>
+          <h3 style="margin:0">📒 होमवर्क हब • Homework</h3>
+          <p class="muted" style="margin:3px 0 0; font-size:12.5px">${isStaff() ? "होमवर्क दें, सबमिशन देखें और अंक दें" : "समय पर होमवर्क जमा करें और +15 XP पाएँ"}</p>
+        </div>
+      </div>
+      <div class="stats" style="margin-top:12px">
+        ${isStaff() ? `
+          <div class="stat"><div class="si" style="background:#e8f1fe">📒</div><div class="n">${cntAll}</div><div class="l">कुल होमवर्क</div></div>
+          <div class="stat"><div class="si" style="background:#e2f4ec">📥</div><div class="n" style="color:var(--ok)">${cntSub}</div><div class="l">सबमिशन</div></div>
+          <div class="stat"><div class="si" style="background:#fdf3d7">⏳</div><div class="n">${cntPend}</div><div class="l">जाँचना बाकी</div></div>
+        ` : `
+          <div class="stat"><div class="si" style="background:#e8f1fe">📒</div><div class="n">${cntAll}</div><div class="l">कुल होमवर्क</div></div>
+          <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n" style="color:var(--ok)">${cntSub}</div><div class="l">जमा किए</div></div>
+          <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n" style="color:${cntPend ? "var(--bad)" : "var(--ok)"}">${cntPend}</div><div class="l">बाकी हैं</div></div>
+        `}
+      </div>
+      ${!isStaff() && cntAll ? `<div class="prog" style="margin-top:12px"><div style="width:${hwPct}%"></div></div>` : ""}
+    </div>
 
-  $app.querySelectorAll("[data-hwcls]").forEach(b => b.onclick = () => { hwClassId = b.dataset.hwcls ? +b.dataset.hwcls : null; renderHomework(); });
+    ${isStaff() ? `<div class="seg-tabs" style="margin-bottom:14px">
+      <button type="button" class="${hwViewTab === "list" ? "on" : ""}" data-hwtab="list">📋 होमवर्क लिस्ट (${cntAll})</button>
+      <button type="button" class="${hwViewTab === "create" ? "on" : ""}" data-hwtab="create">➕ नया होमवर्क दें</button>
+    </div>` : ""}
+
+    ${(!isStaff() || hwViewTab === "list") ? `
+      <div class="card" style="padding:14px 16px">
+        ${myClasses.length > 1 ? `<div style="margin-bottom:${!isStaff() ? "10px" : "0"}"><select id="hwClsSel">
+          <option value="">🎓 सभी कक्षाएँ</option>
+          ${myClasses.map(c => `<option value="${c.id}" ${c.id === hwClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+        </select></div>` : ""}
+        ${!isStaff() ? `<div class="fee-filter-pills">
+          <button type="button" class="chip ${hwFilterStatus === "all" ? "on" : ""}" data-hwst="all">सभी (${cntAll})</button>
+          <button type="button" class="chip ${hwFilterStatus === "pending" ? "on" : ""}" data-hwst="pending">⏳ बाकी (${cntPend})</button>
+          <button type="button" class="chip ${hwFilterStatus === "submitted" ? "on" : ""}" data-hwst="submitted">✅ जमा (${cntSub})</button>
+          <button type="button" class="chip ${hwFilterStatus === "reviewed" ? "on" : ""}" data-hwst="reviewed">🏅 चेक (${cntRev})</button>
+        </div>` : ""}
+      </div>
+      <div class="fee-list">${cards || `<div class="card"><p class="muted" style="margin:0; text-align:center">इस फ़िल्टर में कोई होमवर्क नहीं है।</p></div>`}</div>
+    ` : `
+      <div class="card"><h3>➕ नया होमवर्क दें • Give Homework</h3>
+        <label>शीर्षक • Title</label><input id="hw_title" placeholder="जैसे: अध्याय 5, प्रश्न 1 से 10">
+        <div class="row">
+          <div><label>कक्षा • Class</label><select id="hw_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === hwClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+          <div><label>विषय • Subject</label><select id="hw_subject"><option value="">— कोई नहीं —</option>${(subjects || []).map(s => `<option value="${s.id}">${esc(s.name)} (${esc(clsName(s.class_id))})</option>`).join("")}</select></div>
+        </div>
+        <label>निर्देश • Instructions</label><textarea id="hw_ins" placeholder="छात्रों को क्या करना है, साफ़-साफ़ लिखें…"></textarea>
+        <div class="row">
+          <div><label>अंतिम तिथि • Last Date</label><input id="hw_due" type="date"></div>
+          <div><label>पूर्णांक • Full Marks</label><input id="hw_marks" type="number" placeholder="जैसे: 10"></div>
+        </div>
+        <div class="error" id="hw_err"></div>
+        <button type="button" class="gold" id="hw_add" style="width:100%; margin-top:6px">📤 होमवर्क भेजें</button>
+      </div>
+    `}`;
+
+  $app.querySelectorAll("[data-hwtab]").forEach(b => b.onclick = () => { hwViewTab = b.dataset.hwtab; renderHomework(); });
+  $app.querySelectorAll("[data-hwst]").forEach(b => b.onclick = () => { hwFilterStatus = b.dataset.hwst; renderHomework(); });
+  const hwClsSel = document.getElementById("hwClsSel");
+  if (hwClsSel) hwClsSel.onchange = () => { hwClassId = hwClsSel.value ? +hwClsSel.value : null; renderHomework(); };
   if (isStaff()) {
-    document.getElementById("hw_add").onclick = async () => {
+    const addBtn = document.getElementById("hw_add");
+    if (addBtn) addBtn.onclick = async () => {
       const err = document.getElementById("hw_err"); err.textContent = "";
       const title = document.getElementById("hw_title").value.trim();
-      if (!title) { err.textContent = "Enter a title"; return; }
+      if (!title) { err.textContent = "कृपया शीर्षक लिखें"; return; }
       const due = document.getElementById("hw_due").value;
       const { error } = await sb.from("assignments").insert({
         teacher_id: me.id, title, class_id: +document.getElementById("hw_class").value,
@@ -4019,10 +4097,10 @@ async function renderHomework() {
         max_marks: document.getElementById("hw_marks").value ? +document.getElementById("hw_marks").value : null,
         status: "published" });
       if (error) { err.textContent = error.message; return; }
-      toast("Homework sent 📒"); renderHomework();
+      toast("होमवर्क भेज दिया गया 📒"); hwViewTab = "list"; renderHomework();
     };
     $app.querySelectorAll("[data-hwdel]").forEach(b => b.onclick = async () => {
-      if (!confirm("This homework and all its submissions will be deleted. Are you sure?")) return;
+      if (!confirm("यह होमवर्क और इसके सभी सबमिशन डिलीट हो जाएँगे। क्या आप पक्का हैं?")) return;
       const { error } = await sb.from("assignments").delete().eq("id", +b.dataset.hwdel);
       if (error) return toast("Error: " + error.message);
       renderHomework();
@@ -4045,7 +4123,7 @@ async function renderHomework() {
         feedback: document.getElementById("gf-" + sid).value.trim() || null,
         status: "reviewed" }).eq("id", sid);
       if (error) return toast("Error: " + error.message);
-      toast("Marks given 🏅"); renderHomework();
+      toast("अंक सेव हो गए 🏅"); renderHomework();
     });
   } else {
     $app.querySelectorAll("[data-hwsub]").forEach(b => b.onclick = () => { hwSubmitId = hwSubmitId === +b.dataset.hwsub ? null : +b.dataset.hwsub; renderHomework(); });
@@ -4070,7 +4148,8 @@ async function renderHomework() {
           file_path, status: "submitted", submitted_at: new Date().toISOString(),
         }, { onConflict: "assignment_id,student_id" });
         if (error) throw error;
-        hwSubmitId = null; toast("Homework submitted ✅"); renderHomework();
+        recordStudyActivity(me.id, 15, "hw_" + a.id);
+        hwSubmitId = null; toast("होमवर्क जमा हो गया ✅ (+15 XP)"); renderHomework();
       } catch (e) { err.textContent = e.message; }
     };
   }
@@ -4078,10 +4157,10 @@ async function renderHomework() {
 }
 
 /* ---------------- Attendance ---------------- */
-let attClassId = null, attDate = null, attMarks = {}, attSaved = {};
+let attClassId = null, attDate = null, attMarks = {}, attSaved = {}, attSearch = "";
 let attMonth = null; // v44: student attendance calendar month (YYYY-MM)
 async function renderAttendance() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("dashboard");
   const today = new Date().toISOString().slice(0, 10);
   if (!attDate) attDate = today;
   const clsName = (id) => (myClasses.find(c => c.id === id) || {}).name || "";
@@ -4094,43 +4173,68 @@ async function renderAttendance() {
     ]);
     const ids = (enr || []).map(e => e.user_id);
     const { data: studs } = ids.length ? await sb.from("profiles").select("id,full_name").in("id", ids) : { data: [] };
-    // Seed only students with no unsaved mark — otherwise a tap on
-    // Present/Absent/Leave snaps back to the saved value on re-render.
     attSaved = {};
     (existing || []).forEach(r => { attSaved[r.student_id] = r.status; if (!(r.student_id in attMarks)) attMarks[r.student_id] = r.status; });
+    const allStuds = (studs || []).slice().sort((a, b) => String(a.full_name || "").localeCompare(String(b.full_name || "")));
+    const pCnt = allStuds.filter(s => attMarks[s.id] === "present").length;
+    const aCnt = allStuds.filter(s => attMarks[s.id] === "absent").length;
+    const lCnt = allStuds.filter(s => attMarks[s.id] === "leave").length;
+    const aq = attSearch.trim().toLowerCase();
+    const visStuds = aq ? allStuds.filter(s => String(s.full_name || "").toLowerCase().includes(aq)) : allStuds;
     $app.innerHTML = `
-      <div class="card pol-sec v45rows"><h3>✅ Mark Attendance • उपस्थिति लगाएँ</h3>
-        <div class="row">
-          <div><label>Class</label><select id="att_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === attClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
-          <div><label>Date</label><input id="att_date" type="date" value="${attDate}"></div>
+      <div class="card fee-summary">
+        <div class="fee-sum-head">
+          <div>
+            <h3 style="margin:0">✅ उपस्थिति लगाएँ • Mark Attendance</h3>
+            <p class="muted" style="margin:3px 0 0; font-size:12.5px">एक क्लिक में सभी को उपस्थित करें और सिर्फ़ अनुपस्थित छात्र बदलें</p>
+          </div>
+          <button type="button" class="light small" id="att_csv">⬇ CSV</button>
         </div>
-        <p class="muted">Choose Present / Absent / Leave for each student, then save.</p>
-        ${(studs || []).map(s => `<div class="item"><div class="t" style="font-size:14px">${esc(s.full_name)}</div>
-          <div style="display:flex; gap:5px">
+        <div class="stats" style="margin-top:12px">
+          <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n" style="color:var(--ok)">${pCnt}</div><div class="l">उपस्थित (P)</div></div>
+          <div class="stat"><div class="si" style="background:#fdecea">❌</div><div class="n" style="color:var(--bad)">${aCnt}</div><div class="l">अनुपस्थित (A)</div></div>
+          <div class="stat"><div class="si" style="background:#fdf3d7">🟡</div><div class="n">${lCnt}</div><div class="l">छुट्टी (L)</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row" style="margin-bottom:10px">
+          <div><label style="margin-top:0">कक्षा • Class</label><select id="att_class">${myClasses.map(c => `<option value="${c.id}" ${c.id === attClassId ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></div>
+          <div><label style="margin-top:0">तारीख़ • Date</label><input id="att_date" type="date" value="${attDate}"></div>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <button type="button" class="small" id="attAllP" style="background:var(--ok)">✅ सभी उपस्थित (${allStuds.length})</button>
+          <button type="button" class="light small" id="attAllA">❌ सभी अनुपस्थित</button>
+        </div>
+        ${allStuds.length > 5 ? `<input type="search" id="attSearchIn" value="${esc(attSearch)}" placeholder="🔍 छात्र का नाम खोजें…" style="margin-bottom:10px">` : ""}
+        ${visStuds.map(s => `<div class="item"><div class="t" style="font-size:14.5px">${esc(s.full_name)}</div>
+          <div style="display:flex; gap:6px; flex:0 0 auto">
             ${[["present", "P", "var(--ok)"], ["absent", "A", "var(--bad)"], ["leave", "L", "#b8860b"]].map(([v, l, col]) => `
-              <button class="small ${attMarks[s.id] === v ? "" : "light"}" data-att="${s.id}:${v}" style="${attMarks[s.id] === v ? `background:${col}` : ""}">${l}</button>`).join("")}
-          </div></div>`).join("") || `<p class="muted">There is no student in this class.</p>`}
-        <button class="gold" id="att_save" style="width:100%; margin-top:10px">Save Attendance</button>
-        <button class="light" id="att_csv" style="width:100%; margin-top:8px">⬇ CSV Download — This Day's Attendance</button>
+              <button type="button" class="small ${attMarks[s.id] === v ? "" : "light"}" data-att="${s.id}:${v}" style="min-width:40px; ${attMarks[s.id] === v ? `background:${col}; color:#fff; border-color:${col}` : ""}">${l}</button>`).join("")}
+          </div></div>`).join("") || `<p class="muted" style="margin:6px 0">इस कक्षा में कोई छात्र नहीं है।</p>`}
+        <button type="button" class="gold" id="att_save" style="width:100%; margin-top:14px">💾 उपस्थिति सेव करें • Save Attendance</button>
       </div>`;
     document.getElementById("att_class").onchange = (e) => { attClassId = +e.target.value; attMarks = {}; renderAttendance(); };
     document.getElementById("att_date").onchange = (e) => { attDate = e.target.value; attMarks = {}; renderAttendance(); };
+    const asIn = document.getElementById("attSearchIn");
+    if (asIn) asIn.oninput = () => { attSearch = asIn.value; renderAttendance(); setTimeout(() => { const n = document.getElementById("attSearchIn"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0); };
+    document.getElementById("attAllP").onclick = () => { allStuds.forEach(s => { attMarks[s.id] = "present"; }); renderAttendance(); };
+    document.getElementById("attAllA").onclick = () => { allStuds.forEach(s => { attMarks[s.id] = "absent"; }); renderAttendance(); };
     $app.querySelectorAll("[data-att]").forEach(b => b.onclick = () => {
       const [sid, v] = b.dataset.att.split(":"); attMarks[sid] = v; renderAttendance();
     });
     document.getElementById("att_save").onclick = async () => {
       const rows = Object.entries(attMarks).map(([sid, st]) => ({ student_id: sid, class_id: attClassId, on_date: attDate, status: st, marked_by: me.id }));
-      if (!rows.length) return toast("Mark the attendance first");
+      if (!rows.length) return toast("पहले उपस्थिति मार्क करें");
       const { error } = await sb.from("attendance").upsert(rows, { onConflict: "student_id,on_date" });
       if (error) return toast("Error: " + error.message);
-      const changed = rows.filter(([sid, st]) => attSaved[sid] !== st).length;
-      toast(changed ? `Attendance saved ✅ (${changed} changed)` : "Attendance saved ✅ (no change)"); attMarks = {}; renderAttendance();
+      const changed = rows.filter(r => attSaved[r.student_id] !== r.status).length;
+      toast(changed ? `उपस्थिति सेव हो गई ✅ (${changed} अपडेट)` : "उपस्थिति सेव हो गई ✅"); attMarks = {}; renderAttendance();
     };
     document.getElementById("att_csv").onclick = () => {
-      if (!(studs || []).length) return toast("No students to download");
+      if (!allStuds.length) return toast("डाउनलोड करने के लिए कोई छात्र नहीं है");
       downloadCSV(`attendance-${attDate}.csv`, ["Student", "Class", "Date", "Status"],
-        studs.map(s => [s.full_name, clsName(attClassId), attDate, attMarks[s.id] || "Not marked"]));
-      toast("CSV downloaded ⬇");
+        allStuds.map(s => [s.full_name, clsName(attClassId), attDate, attMarks[s.id] || "Not marked"]));
+      toast("CSV डाउनलोड हो गई ⬇");
     };
     return;
   }
