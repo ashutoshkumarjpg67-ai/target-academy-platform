@@ -1,9 +1,54 @@
-// Target Academy — service worker: phone push notifications (v20).
-// Deliberately no offline caching of the app itself, so students
-// always get the newest version; this worker only handles push.
-self.addEventListener("install", () => { self.skipWaiting(); });
-self.addEventListener("activate", (e) => { e.waitUntil(self.clients.claim()); });
-self.addEventListener("fetch", () => { /* network passthrough */ });
+// Target Academy — service worker (v71):
+// 1) Network-first app-shell caching so students always get the newest version
+//    when online AND can still open the app & cached assets when offline.
+// 2) Web Push notifications for announcements, homework, live classes & tests.
+const CACHE_NAME = "ta-shell-v71";
+const SHELL_ASSETS = [
+  "./",
+  "index.html",
+  "styles.css?v=71",
+  "app.js?v=71",
+  "config.js?v=16",
+  "icon.svg?v=31",
+  "manifest.webmanifest",
+  "js/branding.js?v=1",
+  "js/csv.js?v=1",
+  "js/media.js?v=1",
+  "js/enhancements.js?v=1",
+];
+
+self.addEventListener("install", (e) => {
+  self.skipWaiting();
+  e.waitUntil(
+    caches.open(CACHE_NAME).then((c) => c.addAll(SHELL_ASSETS).catch(() => {})).catch(() => {})
+  );
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  if (req.method !== "GET") return;
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;
+  e.respondWith(
+    fetch(req)
+      .then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match("index.html")))
+  );
+});
 
 self.addEventListener("push", (e) => {
   let d = { title: "Target Academy", body: "", url: "./" };

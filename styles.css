@@ -1556,3 +1556,86 @@ input:focus,select:focus,textarea:focus{
   #topbar button.icon-btn{width:38px; height:38px; padding:0}
   .stile-grid, .stats, .qa-grid, .qa-grid3{gap:8px}
 }
+
+/* ==========================================================================
+   v71 — NEXT-LEVEL ENHANCEMENTS (Skeleton Shimmer, Offline Bar, Streak/XP,
+   AI Weak-Topic Booster & WhatsApp Parent Report)
+   ========================================================================== */
+@keyframes shimmer{
+  0%{background-position:-200% 0}
+  100%{background-position:200% 0}
+}
+.skel-wrap{display:flex; flex-direction:column; gap:14px}
+.skel-card, .skel-tile{
+  background:var(--card); border:1px solid var(--line); border-radius:20px;
+  padding:18px; box-shadow:var(--shadow-sm);
+}
+.skel-hero{min-height:126px}
+.skel-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+.skel-dot{
+  width:40px; height:40px; border-radius:12px; margin-bottom:10px;
+  background:linear-gradient(90deg,var(--card2) 25%,var(--line) 50%,var(--card2) 75%);
+  background-size:200% 100%; animation:shimmer 1.3s ease-in-out infinite;
+}
+.skel-line{
+  height:13px; border-radius:99px; margin-bottom:10px;
+  background:linear-gradient(90deg,var(--card2) 25%,var(--line) 50%,var(--card2) 75%);
+  background-size:200% 100%; animation:shimmer 1.3s ease-in-out infinite;
+}
+.skel-line:last-child{margin-bottom:0}
+.skel-line.w-40{width:40%} .skel-line.w-45{width:45%} .skel-line.w-50{width:50%}
+.skel-line.w-55{width:55%} .skel-line.w-60{width:60%} .skel-line.w-65{width:65%}
+.skel-line.w-70{width:70%} .skel-line.w-75{width:75%} .skel-line.w-80{width:80%}
+.skel-line.w-85{width:85%} .skel-line.w-90{width:90%}
+
+.offline-bar{
+  position:fixed; left:50%; top:72px; transform:translateX(-50%); z-index:90;
+  display:flex; align-items:center; gap:8px;
+  background:#991b1b; color:#fff; padding:9px 16px; border-radius:999px;
+  font-size:12.5px; font-weight:700; box-shadow:0 10px 26px rgba(153,27,27,.35);
+  max-width:92vw;
+}
+
+/* Study Streak & XP Progress Card */
+.streak-card{
+  background:var(--card); border:1px solid var(--line); border-radius:20px;
+  padding:16px 18px; margin-bottom:16px; box-shadow:var(--shadow-sm);
+  position:relative; overflow:hidden; animation:rise .22s ease-out both;
+}
+.streak-card::before{
+  content:""; position:absolute; inset:0 0 auto 0; height:3px;
+  background:linear-gradient(90deg,#f59e0b,#4f46e5,#10b981);
+}
+.sk-top{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+.sk-flame{display:flex; align-items:center; gap:11px; min-width:0}
+.sk-fire{
+  width:44px; height:44px; border-radius:14px; flex:0 0 auto;
+  display:grid; place-items:center; font-size:22px;
+  background:linear-gradient(135deg,#fef3c7,#fde68a);
+  box-shadow:0 4px 12px rgba(245,158,11,.25);
+}
+[data-theme="dark"] .sk-fire{background:rgba(245,158,11,.2)}
+.sk-days{font-size:16.5px; font-weight:800; color:var(--ink); line-height:1.2}
+.sk-sub{font-size:12px; color:var(--muted); margin-top:2px; font-weight:600}
+.sk-lvl{text-align:right; flex:0 0 auto}
+.sk-badge{
+  display:inline-flex; align-items:center; gap:5px;
+  background:var(--accent-soft); color:var(--accent);
+  font-size:12px; font-weight:800; padding:4px 10px; border-radius:999px;
+}
+.sk-xp{font-size:13px; font-weight:800; color:var(--ink); margin-top:4px}
+.sk-prog{margin-top:12px; height:8px}
+.sk-foot{
+  display:flex; justify-content:space-between; align-items:center; gap:10px;
+  margin-top:7px; font-size:11.5px; font-weight:700; color:var(--muted);
+}
+
+/* AI Weak-Topic Booster & WhatsApp Share Buttons */
+.booster-card{
+  background:linear-gradient(135deg,var(--accent-soft),var(--card));
+  border:1.5px solid rgba(79,70,229,.25);
+}
+button.wa-btn{
+  background:linear-gradient(135deg,#25d366,#128c7e);
+  color:#ffffff; box-shadow:0 8px 18px -5px rgba(18,140,126,.42);
+}

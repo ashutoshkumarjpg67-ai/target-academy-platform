@@ -5,6 +5,6 @@
   "description": "Target Academy web application",
   "type": "module",
   "scripts": {
-    "test:syntax": "node --check app.js && node --check config.js && node --check sw.js && node --check js/csv.js && node --check js/media.js && node --check js/branding.js"
+    "test:syntax": "node --check app.js && node --check config.js && node --check sw.js && node --check js/csv.js && node --check js/media.js && node --check js/branding.js && node --check js/enhancements.js"
   }
 }

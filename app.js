@@ -3,6 +3,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=16";
 import { downloadCSV } from "./js/csv.js?v=1";
 import { fmtKB, compressImageFile, enhanceFilePicker } from "./js/media.js?v=1";
 import { applyBrandLogo } from "./js/branding.js?v=1";
+import { skeletonHTML, initOfflineBanner, recordStudyActivity, streakCardHTML, shareWhatsAppReport } from "./js/enhancements.js?v=1";
 
 /* Photo upload prep (kept here: uses toast). Compression itself lives in js/media.js. */
 async function prepareUploadFile(file) {
@@ -17,6 +18,7 @@ const $tabbar = document.getElementById("tabbar");
 const $logout = document.getElementById("logoutBtn");
 const $bell = document.getElementById("bellBtn");
 const $toast = document.getElementById("toast");
+initOfflineBanner();
 
 let me = null;        // auth user
 let profile = null;   // profiles row (role, full_name...)
@@ -399,7 +401,7 @@ function startExamCountdown() {
 
 async function renderHome() {
   if (examCdTimer) { clearInterval(examCdTimer); examCdTimer = null; }
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("dashboard");
   if (!isStaff()) {
     // Phase 2: enrolments first, then class-scoped queries (previously the
     // whole subjects/tests/assignments/timetable tables were downloaded and
@@ -456,6 +458,7 @@ async function renderHome() {
       </div>
       <div class="motto"><span class="mo-ic">🔔</span><span>मेहनत आज की पहचान है, कल यही सफलता बनेगी।</span></div>
       ${examCdHTML()}
+      ${streakCardHTML(me.id, { attemptsCount: (attempts || []).length, attPresent })}
       <div class="stile-grid">
         <div class="stile" data-go="timetable"><span class="si2" style="background:#e8f1fe">📅</span><div class="sl">आज की क्लास</div><div class="sv">${todayTT.length ? todayTT.length + " क्लास" : "कोई नहीं"}</div><div class="ssub">${todayTT.length ? esc(subById[todayTT[0].subject_id]?.name || "क्लास") + " • " + String(todayTT[0].starts_at || "").slice(0, 5) : "आज कोई क्लास नहीं है"}</div></div>
         <div class="stile" data-go="tests"><span class="si2" style="background:#e2f4ec">📝</span><div class="sl">अगली परीक्षा</div><div class="sv">${nextTest ? (nextTest.starts_at ? new Date(nextTest.starts_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" }) : "तैयार है") : "—"}</div><div class="ssub">${nextTest ? esc(nextTest.title) : "कोई आगामी टेस्ट नहीं"}</div></div>
@@ -466,7 +469,10 @@ async function renderHome() {
         ${recent.length ? recent.map(a => { const t = testById[a.test_id]; return `<div class="frow"><div class="fic" style="background:${a.passed ? "#e2f4ec" : "#fdecea"}">${a.passed ? "🏆" : "📝"}</div>
           <div style="flex:1; min-width:0"><div class="ft">${esc(t?.title || "टेस्ट")}</div><div class="fs">${t?.subject_id && subById[t.subject_id] ? esc(subById[t.subject_id].name) + " • " : ""}${new Date(a.submitted_at).toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}</div></div>
           <div style="text-align:right; flex:0 0 auto"><div style="font-weight:900; color:var(--navy)">${a.score}/${a.max_score}</div>${pillFor(+a.percent || 0)}</div></div>`; }).join("") : `<p class="muted" style="margin:0">अभी कोई टेस्ट नहीं दिया है — पहला टेस्ट देकर शुरुआत करें।</p>`}
-        <button data-go="tests" style="width:100%; margin-top:12px">View All ›</button>
+        <div class="row" style="margin-top:12px">
+          <button data-go="tests">View All ›</button>
+          <button type="button" class="wa-btn" id="homeWaReport">📲 WhatsApp Report</button>
+        </div>
       </div>
       ${myLives.length ? `<div class="card"><h3>📺 आने वाली Live Classes</h3>
         ${myLives.map(l => { const isLive = new Date(l.starts_at).getTime() <= Date.now(); return `<div class="frow"><div class="fic" style="background:#fdecea">📺</div>
@@ -481,6 +487,24 @@ async function renderHome() {
     wireQA();
     startExamCountdown();
     document.getElementById("dashHead").onclick = () => { tab = "profile"; renderShell(); };
+    const waHome = document.getElementById("homeWaReport");
+    if (waHome) waHome.onclick = () => {
+      const latest = recent[0] || null;
+      const latestTest = latest ? testById[latest.test_id] : null;
+      shareWhatsAppReport({
+        studentName: profile.full_name,
+        className: clsNames,
+        title: latestTest?.title || "",
+        score: latest ? latest.score : null,
+        maxScore: latest ? latest.max_score : null,
+        percent: latest ? Math.round(+latest.percent || 0) : null,
+        passed: latest ? !!latest.passed : false,
+        attendancePct: attPct,
+        attPresent,
+        attTotal,
+        feeDue,
+      });
+    };
     $app.querySelectorAll("[data-nav]").forEach(el => el.onclick = () => { tab = el.dataset.nav; renderShell(); });
     $app.querySelectorAll("[data-join]").forEach(b => b.onclick = () => window.open(b.dataset.join, "_blank"));
     return;
@@ -1583,7 +1607,7 @@ async function renderStudy() {
 /* ---------------- Fees (student / parent section) ---------------- */
 let feesTab = "monthly"; // v44: student fees tabs (monthly | history)
 async function renderFeesStudent() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   let feeQ = sb.from("fee_records").select(profile.role === "parent"
     ? "id,student_id,class_id,amount,paid_amount,fee_type,period,due_date,status,updated_at"
     : "id,amount,paid_amount,fee_type,period,due_date,status,updated_at").order("created_at", { ascending: false }).is("deleted_at", null);
@@ -2577,9 +2601,10 @@ async function showResult(attemptId, test) {
   tab = "tests";
   curView = "result"; hidePageHead();
   try { history.pushState({ view: "result" }, ""); } catch (e) {}
-  $app.innerHTML = `<div class="loading">Loading result…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   $tabbar.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === "tests"));
   const { data: attempt } = await sb.from("test_attempts").select("id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("id", attemptId).single();
+  if (!isStaff() && attempt?.id) recordStudyActivity(me.id, 25, "test_" + attempt.id);
   const { data: review, error } = await sb.rpc("get_attempt_review", { p_attempt_id: attemptId });
   let myTestAttempts = [];
   if (test && !isStaff()) {
@@ -2640,9 +2665,15 @@ async function showResult(attemptId, test) {
       </div>
       ${cntR.pend ? `<p class="muted" style="margin:10px 0 0">⏳ ${cntR.pend} लिखित उत्तर शिक्षक जाँचेंगे — उनके नंबर बाद में जुड़ सकते हैं।</p>` : ""}
     </div>` : ""}
+    ${!isStaff() && cntR && (cntR.wrong > 0 || cntR.skip > 0) ? `<div class="card booster-card">
+      <h3 style="margin-top:0">🤖 AI Weak-Topic Booster</h3>
+      <p style="margin:0 0 12px">आपके ${cntR.wrong} गलत और ${cntR.skip} छूटे हुए सवालों के कॉन्सेप्ट को AI Tutor से आसान हिंदी में तुरंत समझें और याद करने की ट्रिक पाएं।</p>
+      <button type="button" id="resBoostAI" style="width:100%">🚀 कमज़ोर टॉपिक अभी समझें (AI Tutor)</button>
+    </div>` : ""}
     <div class="row" style="margin:12px 0">
       <button class="light" id="resBack">← Test List</button>
       ${!error ? `<button class="gold" id="resAll">📖 View All Answers</button>` : ""}
+      <button type="button" class="wa-btn" id="resWaShare">📲 WhatsApp Report</button>
       ${canRestart ? `<button class="gold" id="resRestart">🔁 Retake (${test.max_attempts ? `${submittedCount}/${test.max_attempts} attempts used` : "Unlimited attempts"})</button>` : ""}
     </div>
     ${error ? `<div class="card"><p>A detailed review is not available right now (${esc(error.message)}). Your result is shown above.</p></div>`
@@ -2653,6 +2684,26 @@ async function showResult(attemptId, test) {
   document.getElementById("resBack2").onclick = goBack;
   const resAll = document.getElementById("resAll");
   if (resAll) resAll.onclick = () => { const b = document.getElementById("revBox"); if (b) b.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  const resWa = document.getElementById("resWaShare");
+  if (resWa) resWa.onclick = () => shareWhatsAppReport({
+    studentName: profile.full_name,
+    className: resClass,
+    title: test ? test.title : "Test Result",
+    score: attempt?.score,
+    maxScore: attempt?.max_score,
+    percent: pct,
+    passed: !!attempt?.passed,
+    right: cntR?.right,
+    wrong: cntR?.wrong,
+    skip: cntR?.skip,
+  });
+  const resBoost = document.getElementById("resBoostAI");
+  if (resBoost && revState) resBoost.onclick = () => {
+    const missed = revState.rows.filter(r => r.is_correct === false || (r.is_correct === null && !(Array.isArray(r.my_answer) ? r.my_answer[0] : r.my_answer))).slice(0, 5);
+    const list = missed.map((r, i) => `${i + 1}. ${String(r.question_text || r.question || "").slice(0, 120)}`).filter(Boolean).join("\n");
+    window._pendingTutorPrompt = `मेरे टेस्ट "${test ? test.title : "Test"}" (${resSubj || "General"}) में ये सवाल गलत हुए या छूट गए:\n${list}\n\nकृपया इन टॉपिक्स को आसान हिंदी में समझाओ, सही कॉन्सेप्ट बताओ और याद रखने की 1 आसान ट्रिक दो।`;
+    tab = "tutor"; renderShell();
+  };
   if (canRestart) document.getElementById("resRestart").onclick = () => startTest(test, myTestAttempts);
   if (!error) drawReview();
   window.scrollTo({ top: 0 });
@@ -3258,6 +3309,12 @@ async function renderTutor() {
   $app.querySelectorAll("[data-tfill]").forEach(b => b.onclick = () => { const inp = document.getElementById("tutorInput"); if (inp) { inp.value = b.dataset.tfill; inp.focus(); } });
   const clr = document.getElementById("tutorClear");
   if (clr) clr.onclick = () => { tutorChat = []; renderTutor(); };
+  if (window._pendingTutorPrompt && !tutorBusy) {
+    const p = window._pendingTutorPrompt;
+    window._pendingTutorPrompt = null;
+    send(p);
+    return;
+  }
   window.scrollTo(0, document.body.scrollHeight);
 }
 
