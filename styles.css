@@ -1030,12 +1030,14 @@ body{overflow-x:clip}
   --shadow-hover:0 18px 36px -10px rgba(79,70,229,.16), 0 4px 12px -4px rgba(15,23,42,.07);
 }
 
+html,body{min-height:100dvh}
 body{
   font-family:"Plus Jakarta Sans","Noto Sans Devanagari",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   background:
     radial-gradient(880px 420px at 92% -80px, rgba(99,102,241,.13), transparent 62%),
     radial-gradient(640px 340px at -8% 12%, rgba(245,158,11,.10), transparent 58%),
     var(--bg);
+  background-attachment:fixed;
   color:var(--ink);
   letter-spacing:-.01em;
 }
@@ -1201,6 +1203,7 @@ main{max-width:920px; margin:0 auto; padding:18px 16px}
   padding:20px;
   margin-bottom:16px;
   box-shadow:var(--shadow-sm);
+  animation:rise .22s ease-out both;
   transition:box-shadow .2s ease, border-color .2s ease;
 }
 .card h3{
@@ -1479,6 +1482,7 @@ input:focus,select:focus,textarea:focus{
     radial-gradient(880px 420px at 90% -80px, rgba(99,102,241,.18), transparent 60%),
     radial-gradient(640px 340px at -10% 15%, rgba(245,158,11,.10), transparent 55%),
     var(--bg);
+  background-attachment:fixed;
 }
 [data-theme="dark"] #topbar{
   background:rgba(15,23,42,.84);
