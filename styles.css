@@ -1639,3 +1639,72 @@ button.wa-btn{
   background:linear-gradient(135deg,#25d366,#128c7e);
   color:#ffffff; box-shadow:0 8px 18px -5px rgba(18,140,126,.42);
 }
+
+/* ==========================================================================
+   v72 — CLEAN ZERO-OVERLAP HEADER & DEDICATED UTILITY BAR
+   Separates Coaching Brand row cleanly from Dark Mode / Notices / Logout
+   controls on mobile so nothing ever overlaps or squeezes the coaching name.
+   ========================================================================== */
+#topbar{
+  flex-wrap:wrap;
+  row-gap:10px;
+}
+#topbar .brand{
+  flex:1 1 auto;
+  min-width:0;
+}
+#topbar .top-actions{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-left:auto;
+  flex-shrink:0;
+}
+#topbar button.util-pill{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:36px;
+  padding:6px 12px;
+  border-radius:999px;
+  font-size:12.5px;
+  font-weight:700;
+  white-space:nowrap;
+}
+#topbar button.util-out:hover{
+  background:rgba(220,38,38,.10);
+  border-color:rgba(220,38,38,.35);
+  color:var(--bad);
+}
+@media (max-width:699px){
+  #topbar{
+    flex-direction:column;
+    align-items:stretch;
+    padding:10px 14px 10px;
+    gap:0;
+  }
+  #topbar .brand{
+    width:100%;
+    padding-bottom:9px;
+  }
+  #topbar .top-actions{
+    width:100%;
+    margin-left:0;
+    padding-top:8px;
+    border-top:1px solid var(--line);
+    justify-content:flex-end;
+    gap:8px;
+  }
+  #topbar .top-actions button.util-pill{
+    flex:1 1 0;
+    min-height:36px;
+    padding:6px 8px;
+    font-size:12px;
+  }
+  body.auth-mode #topbar .top-actions button.util-pill{
+    flex:0 0 auto;
+    padding:6px 14px;
+  }
+  .offline-bar{top:116px}
+}

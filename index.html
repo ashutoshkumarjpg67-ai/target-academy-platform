@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=71">
+<link rel="stylesheet" href="styles.css?v=72">
 <script>
 try{if(localStorage.getItem("ta_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(_){}
 </script>
@@ -54,9 +54,9 @@ try{if(localStorage.getItem("ta_theme")==="dark")document.documentElement.setAtt
     </div>
   </div>
   <div class="top-actions">
-    <button id="themeBtn" class="ghost icon-btn" type="button" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
-    <button id="bellBtn" class="ghost hidden" style="position:relative">🔔<span id="bellBadge" class="hidden bellbadge"></span></button>
-    <button id="logoutBtn" class="ghost hidden">Logout</button>
+    <button id="themeBtn" class="ghost util-pill" type="button" title="Toggle theme" aria-label="Toggle dark mode"><span class="u-ic">🌙</span><span class="u-lb">Dark</span></button>
+    <button id="bellBtn" class="ghost util-pill hidden" style="position:relative"><span class="u-ic">🔔</span><span class="u-lb">Notices</span><span id="bellBadge" class="hidden bellbadge"></span></button>
+    <button id="logoutBtn" class="ghost util-pill util-out hidden"><span class="u-ic">🚪</span><span class="u-lb">Logout</span></button>
   </div>
 </header>
 
@@ -72,7 +72,7 @@ try{if(localStorage.getItem("ta_theme")==="dark")document.documentElement.setAtt
 (function(){
   const btn=document.getElementById("themeBtn");
   if(!btn)return;
-  const sync=()=>{const d=document.documentElement.getAttribute("data-theme")==="dark";btn.textContent=d?"☀️":"🌙";btn.title=d?"Switch to Light Mode":"Switch to Dark Mode";};
+  const sync=()=>{const d=document.documentElement.getAttribute("data-theme")==="dark";const ic=btn.querySelector(".u-ic"),lb=btn.querySelector(".u-lb");if(ic)ic.textContent=d?"☀️":"🌙";if(lb)lb.textContent=d?"Light":"Dark";if(!ic&&!lb)btn.textContent=d?"☀️":"🌙";btn.title=d?"Switch to Light Mode":"Switch to Dark Mode";};
   sync();
   btn.addEventListener("click",()=>{
     const next=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
