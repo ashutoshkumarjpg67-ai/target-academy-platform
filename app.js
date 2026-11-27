@@ -1923,9 +1923,14 @@ async function renderFeesStudent() {
 /* ---------------- Test Center ---------------- */
 let run = null; // live attempt runtime
 
+let testViewTab = "list"; // list | create (staff)
+let testFilterStatus = "all"; // student: all|pending|done ; staff: all|published|draft
+let testFilterSubj = "";
+let testSearch = "";
+
 async function renderTests() {
   if (run) { renderRun(); return; }
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("dashboard");
   const testClassIds = myClasses.map(c => c.id);
   const testClsQ = (qb) => testClassIds.length ? qb.in("class_id", testClassIds) : qb.eq("class_id", -1);
   const testsQ = isStaff()
@@ -1939,129 +1944,268 @@ async function renderTests() {
     sb.from("chapters").select("id,sort_order").order("sort_order"),
   ]);
   const attemptsOf = (tid) => (myAttempts || []).filter(a => a.test_id === tid);
-  // Arrange tests by chapter, not by creation date (user report 23 Oct:
-  // "Chapter arrange nahi hai" — the list showed Ch 5, 4, 3, 10, 9).
-  // Within a class the order is: the linked chapter's sort_order first;
-  // a test without a linked chapter falls back to the number in its own
-  // title ("Chapter 7"); unnumbered tests keep their order at the end.
-  // Subject grouping below preserves this order inside every subject.
   const chapSortOf = (t) => {
     const ch = (chapters || []).find(c => c.id === t.chapter_id);
     if (ch && ch.sort_order) return +ch.sort_order;
     const m = String(t.title || "").match(/chapter\s*(\d+)/i);
     return m ? +m[1] : 9000;
   };
-  if (tests) tests.sort((a, b) =>
+  const allTests = (tests || []).slice().sort((a, b) =>
     (a.class_id || 0) - (b.class_id || 0) ||
     chapSortOf(a) - chapSortOf(b) ||
     String(a.created_at || "").localeCompare(String(b.created_at || "")));
-  const testRow = (t) => {
+
+  const subById = {}; (subjects || []).forEach(s => { subById[s.id] = s; });
+  const clsNameOf = (cid) => (myClasses.find(c => c.id === cid) || {}).name || "";
+  const isDoneTest = (t) => attemptsOf(t.id).some(a => a.status !== "in_progress");
+
+  // Summary KPIs
+  const totalCount = allTests.length;
+  const doneCount = allTests.filter(isDoneTest).length;
+  const pendingCount = totalCount - doneCount;
+  const pubCount = allTests.filter(t => t.status === "published").length;
+  const draftCount = totalCount - pubCount;
+  const submittedAll = (myAttempts || []).filter(a => a.status !== "in_progress" && a.percent != null);
+  const avgPct = submittedAll.length ? Math.round(submittedAll.reduce((s, a) => s + (+a.percent || 0), 0) / submittedAll.length) : 0;
+  const donePct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  // Subjects present in current tests
+  const presentSubIds = [...new Set(allTests.map(t => t.subject_id).filter(Boolean))];
+  const presentSubs = presentSubIds.map(id => subById[id]).filter(Boolean);
+
+  // Filter tests
+  const q = testSearch.trim().toLowerCase();
+  const filteredTests = allTests.filter(t => {
+    if (isStaff()) {
+      if (testFilterStatus === "published" && t.status !== "published") return false;
+      if (testFilterStatus === "draft" && t.status !== "draft") return false;
+    } else {
+      if (testFilterStatus === "pending" && isDoneTest(t)) return false;
+      if (testFilterStatus === "done" && !isDoneTest(t)) return false;
+    }
+    if (testFilterSubj && String(t.subject_id || "") !== String(testFilterSubj)) return false;
+    if (q) {
+      const sub = subById[t.subject_id];
+      const hay = `${t.title} ${clsNameOf(t.class_id)} ${sub ? sub.name + " " + (sub.name_hi || "") : ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const sched = (t) => {
+    const now = Date.now();
+    const st = t.starts_at ? new Date(t.starts_at).getTime() : null;
+    const en = t.ends_at ? new Date(t.ends_at).getTime() : null;
+    const fmt = (x) => new Date(x).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    if (st && en) return { state: now < st ? "upcoming" : now > en ? "ended" : "live", text: `🕒 ${fmt(st)} – ${fmt(en)}` };
+    if (st) return { state: now < st ? "upcoming" : "live", text: `🕒 Starts ${fmt(st)}` };
+    if (en) return { state: now > en ? "ended" : "live", text: `🕒 Ends ${fmt(en)}` };
+    return null;
+  };
+
+  const testCard = (t) => {
     const mine = attemptsOf(t.id);
-    // Show the LATEST submitted attempt (by submitted_at), not the first
-    // by started_at — otherwise a retake's new score can be hidden behind
-    // an older submitted attempt when attempts overlap.
     const submitted = mine.filter(a => a.status !== "in_progress").sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
     const live = mine.find(a => a.status === "in_progress");
-    // Scheduled live test (v65): optional start/end window. No window = old behaviour.
-    const sched = (t) => {
-      const now = Date.now();
-      const st = t.starts_at ? new Date(t.starts_at).getTime() : null;
-      const en = t.ends_at ? new Date(t.ends_at).getTime() : null;
-      const fmt = (x) => new Date(x).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-      if (st && en) return { state: now < st ? "upcoming" : now > en ? "ended" : "live", text: `🕒 ${fmt(st)} – ${fmt(en)}` };
-      if (st) return { state: now < st ? "upcoming" : "live", text: `🕒 Starts ${fmt(st)}` };
-      if (en) return { state: now > en ? "ended" : "live", text: `🕒 Ends ${fmt(en)}` };
-      return null;
-    };
     const sc = sched(t);
     const inWindow = !sc || sc.state === "live";
-    return `<div class="item"><div>
-        <div class="t">${esc(t.title)}</div>
-        <div class="s">${esc((myClasses.find(c => c.id === t.class_id) || {}).name || "")} • ⏱ ${isUnlimitedTime(t.duration_minutes) ? "Unlimited time" : `${t.duration_minutes} min`} • ${t.total_marks} marks${t.instant_feedback ? " • ⚡ Practice Mode" : ""}${!t.max_attempts ? " • ♾️ Unlimited attempts" : ""}${+t.negative_marking ? ` • −${t.negative_marking} for a wrong answer` : ""}${submitted.length ? `<br>मेरा स्कोर: <b>${submitted[0].score}/${submitted[0].max_score}</b> (${submitted[0].percent}%) ${submitted[0].passed ? "✅ सफल • Pass" : "❌ असफल • Fail"}` : ""}${sc ? `<br>${sc.text}` : ""}</div>
+    const latest = submitted[0] || null;
+    const pct = latest ? Math.min(100, Math.round(+latest.percent || 0)) : 0;
+    return `<div class="test-card">
+      <div class="fee-top">
+        <div style="min-width:0; flex:1">
+          <div class="fee-sname">${esc(t.title)}</div>
+          <div class="fee-meta">${esc(clsNameOf(t.class_id))}${sc ? ` • ${sc.text}` : ""}</div>
+        </div>
+        <div style="display:flex; gap:5px; flex-wrap:wrap; justify-content:flex-end">
+          <span class="pill ${t.status === "published" ? "green" : "gold"}">${t.status === "published" ? "Live" : "Draft"}</span>
+          ${sc && t.status === "published" ? `<span class="pill ${sc.state === "live" ? "green" : sc.state === "upcoming" ? "gold" : "red"}">${sc.state === "live" ? "🔴 Live" : sc.state === "upcoming" ? "⏳ Upcoming" : "⛔ Ended"}</span>` : ""}
+        </div>
       </div>
-      <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end">
-        <span class="pill ${t.status === "published" ? "green" : "gold"}">${t.status === "published" ? "उपलब्ध • Live" : t.status === "draft" ? "ड्राफ़्ट • Draft" : esc(t.status)}</span>
-        ${sc && t.status === "published" ? `<span class="pill ${sc.state === "live" ? "green" : sc.state === "upcoming" ? "gold" : "red"}">${sc.state === "live" ? "🔴 Live now" : sc.state === "upcoming" ? "⏳ Upcoming" : "⛔ Ended"}</span>` : ""}
-        ${isStaff() ? `<div class="row" style="flex-wrap:nowrap">
-            <button class="light small" data-tpreview="${t.id}">👁 Preview</button>
-            <button class="light small" data-tinst="${t.id}:${t.instant_feedback ? 1 : 0}" title="Turn Practice Mode on/off">⚡ ${t.instant_feedback ? "ON" : "OFF"}</button>
-            <button class="light small" data-tresults="${t.id}">Results</button>
-            <button class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "Make Draft" : "Publish"}</button>
-            <button class="danger small" data-tdel="${t.id}">✕</button></div>`
-          : t.status === "published" ? (live
-            ? `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}<button class="gold small" data-tstart="${t.id}">▶ Continue</button>`
-            : `${submitted.length ? `<button class="small" data-tresult="${submitted[0].id}:${t.id}">📊 View Result</button>` : ""}${(inWindow && (!t.max_attempts || submitted.length < t.max_attempts)) ? `<button class="gold small" data-tstart="${t.id}">${submitted.length ? (t.max_attempts ? `🔁 Retake (${submitted.length}/${t.max_attempts})` : "🔁 Retake") : "▶ Start Test"}</button>` : (!inWindow ? `<span class="muted" style="font-size:12px">${sc.state === "upcoming" ? "⏳ " + sc.text : "⛔ Test khatm ho gaya"}</span>` : "")}`) : ""}
-      </div></div>`;
+      <div class="test-chips">
+        <span class="tchip">⏱ ${isUnlimitedTime(t.duration_minutes) ? "Unlimited" : `${t.duration_minutes} min`}</span>
+        <span class="tchip">🎯 ${t.total_marks} अंक</span>
+        ${t.instant_feedback ? `<span class="tchip tchip-acc">⚡ Practice</span>` : ""}
+        ${!t.max_attempts ? `<span class="tchip">♾️ Unlimited</span>` : `<span class="tchip">🔁 Max ${t.max_attempts}</span>`}
+        ${+t.negative_marking ? `<span class="tchip tchip-bad">−${t.negative_marking} Neg</span>` : ""}
+      </div>
+      ${latest ? `<div class="test-score">
+        <div class="test-sc-row">
+          <span>${latest.passed ? "🏆" : "📝"} मेरा स्कोर: <b>${latest.score}/${latest.max_score}</b> (${pct}%)</span>
+          <span class="pill ${latest.passed ? "green" : "red"}">${latest.passed ? "Pass ✅" : "Retry 💪"}</span>
+        </div>
+        <div class="prog fee-bar"><div style="width:${pct}%; background:${latest.passed ? "var(--ok)" : "var(--bad)"}"></div></div>
+      </div>` : ""}
+      <div class="fee-acts">
+        ${isStaff() ? `
+          <button type="button" class="light small" data-tpreview="${t.id}">👁 Preview</button>
+          <button type="button" class="small" data-tresults="${t.id}">📊 Results</button>
+          <button type="button" class="light small" data-tinst="${t.id}:${t.instant_feedback ? 1 : 0}" title="Toggle Practice Mode">⚡ ${t.instant_feedback ? "ON" : "OFF"}</button>
+          <button type="button" class="light small" data-tpub="${t.id}:${t.status}">${t.status === "published" ? "📝 Draft" : "🚀 Publish"}</button>
+          <button type="button" class="light small" style="color:var(--bad)" data-tdel="${t.id}" title="Delete">🗑</button>
+        ` : t.status === "published" ? (
+          live
+            ? `<button type="button" class="gold small" data-tstart="${t.id}">▶ Continue Test</button>${latest ? `<button type="button" class="light small" data-tresult="${latest.id}:${t.id}">📊 View Result</button>` : ""}`
+            : `${(inWindow && (!t.max_attempts || submitted.length < t.max_attempts)) ? `<button type="button" class="gold small" data-tstart="${t.id}">${latest ? (t.max_attempts ? `🔁 Retake (${submitted.length}/${t.max_attempts})` : "🔁 Retake") : "▶ Start Test"}</button>` : (!inWindow ? `<span class="muted" style="font-size:12px">${sc.state === "upcoming" ? "⏳ " + sc.text : "⛔ टेस्ट समाप्त हो गया"}</span>` : "")}${latest ? `<button type="button" class="light small" data-tresult="${latest.id}:${t.id}">📊 View Result</button>` : ""}`
+        ) : ""}
+      </div>
+    </div>`;
   };
+
   const groupedTests = () => {
-    if (!tests || !tests.length) return `<div class="card"><p>No tests yet.</p></div>`;
-    const classIds = [...new Set(tests.map(t => t.class_id))];
+    if (!filteredTests.length) return `<div class="card"><p class="muted" style="margin:0; text-align:center">${allTests.length ? "इस फ़िल्टर में कोई टेस्ट नहीं मिला।" : "अभी कोई टेस्ट उपलब्ध नहीं है।"}</p></div>`;
+    const classIds = [...new Set(filteredTests.map(t => t.class_id))];
     return classIds.map(cid => {
-      const inClass = tests.filter(t => t.class_id === cid);
+      const inClass = filteredTests.filter(t => t.class_id === cid);
       const subsHere = (subjects || []).filter(s => s.class_id === cid);
       const knownIds = new Set(subsHere.map(s => s.id));
-      let html = `<div style="margin:16px 0 4px; font-weight:900; color:var(--navy); font-size:17px">🎓 ${esc((myClasses.find(c => c.id === cid) || {}).name || "Class")}</div>`;
+      let html = `<div class="test-cls-head">🎓 ${esc(clsNameOf(cid) || "Class")} <span class="pill blue">${inClass.length}</span></div>`;
       subsHere.forEach(s => {
         const inSub = inClass.filter(t => t.subject_id === s.id);
         if (!inSub.length) return;
-        html += `<details class="card" open><summary style="font-weight:900; color:var(--navy); font-size:16px; cursor:pointer">📚 ${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""} <span class="muted" style="font-weight:600">(${inSub.length} test${inSub.length > 1 ? "s" : ""})</span></summary>${inSub.map(testRow).join("")}</details>`;
+        const st = subjStyle(s.name);
+        html += `<details class="test-group" open>
+          <summary class="test-subhead"><span class="ts-ic" style="background:${st.c}">${st.i}</span><span style="flex:1">${esc(s.name)}${s.name_hi ? ` • ${esc(s.name_hi)}` : ""}</span><span class="pill">${inSub.length} टेस्ट</span></summary>
+          <div class="fee-list" style="margin-top:10px">${inSub.map(testCard).join("")}</div>
+        </details>`;
       });
       const rest = inClass.filter(t => !t.subject_id || !knownIds.has(t.subject_id));
-      if (rest.length) html += `<details class="card" open><summary style="font-weight:900; color:var(--navy); font-size:16px; cursor:pointer">📚 Other Tests <span class="muted" style="font-weight:600">(${rest.length})</span></summary>${rest.map(testRow).join("")}</details>`;
+      if (rest.length) {
+        html += `<details class="test-group" open>
+          <summary class="test-subhead"><span class="ts-ic" style="background:var(--accent)">📝</span><span style="flex:1">अन्य टेस्ट • Other Tests</span><span class="pill">${rest.length} टेस्ट</span></summary>
+          <div class="fee-list" style="margin-top:10px">${rest.map(testCard).join("")}</div>
+        </details>`;
+      }
       return html;
     }).join("");
   };
 
   $app.innerHTML = `
-    ${isStaff() ? `
-    <details class="card"><summary>➕ Create a New Test</summary>
-      <label>Test Name</label><input id="t_title" placeholder="e.g. Science — Chapter 5 Test">
-      <div class="row">
-        <div><label>Class</label><select id="t_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
-        <div><label>Time (minutes, 0 = Unlimited)</label><input id="t_dur" type="number" value="0" min="0"></div>
+    <div class="card fee-summary">
+      <div class="fee-sum-head">
+        <div>
+          <h3 style="margin:0">📝 ${isStaff() ? "टेस्ट हब • Tests Hub" : "मेरे टेस्ट • My Tests"}</h3>
+          <p class="muted" style="margin:3px 0 0; font-size:12.5px">${isStaff() ? "टेस्ट बनाएँ, पब्लिश करें और छात्रों के रिज़ल्ट एक जगह देखें" : "अध्याय व विषय के अनुसार व्यवस्थित टेस्ट — अभ्यास करें और स्कोर बढ़ाएँ"}</p>
+        </div>
       </div>
-      <div class="row">
-        <div><label>Negative marking (per wrong answer)</label><input id="t_neg" type="number" value="0" min="0" step="0.25"></div>
-        <div><label>Pass %</label><input id="t_pass" type="number" value="33" min="0" max="100"></div>
-        <div><label>Attempts (0 = Unlimited)</label><input id="t_max" type="number" value="0" min="0"></div>
+      <div class="stats" style="margin-top:12px">
+        ${isStaff() ? `
+          <div class="stat"><div class="si" style="background:#e8f1fe">📝</div><div class="n">${totalCount}</div><div class="l">कुल टेस्ट</div></div>
+          <div class="stat"><div class="si" style="background:#e2f4ec">🟢</div><div class="n" style="color:var(--ok)">${pubCount}</div><div class="l">Live</div></div>
+          <div class="stat"><div class="si" style="background:#fdf3d7">🟡</div><div class="n">${draftCount}</div><div class="l">Draft</div></div>
+        ` : `
+          <div class="stat"><div class="si" style="background:#e8f1fe">📝</div><div class="n">${totalCount}</div><div class="l">कुल टेस्ट</div></div>
+          <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n" style="color:var(--ok)">${doneCount}</div><div class="l">पूरे किए</div></div>
+          <div class="stat"><div class="si" style="background:#fdf3d7">🏆</div><div class="n">${submittedAll.length ? avgPct + "%" : "—"}</div><div class="l">औसत स्कोर</div></div>
+        `}
       </div>
-      <div class="row">
-        <div><label>🕒 Start time (optional — live test)</label><input id="t_start" type="datetime-local"></div>
-        <div><label>🕒 End time (optional — auto-submit)</label><input id="t_end" type="datetime-local"></div>
-      </div>
-      <p class="muted">Agar start/end time doge to test sirf usi window me chalega — time khatm hote hi test apne aap submit ho jayega। Khali chhoda to test pehle jaise hamesha khula rahega।</p>
-      <label class="checkrow"><input type="checkbox" id="t_instant" checked><span><b>⚡ Practice Mode</b> — as soon as an option is chosen, the student sees correct/wrong + the explanation (the first click counts as the answer; it cannot be changed later)</span></label>
-      <label>Choose Questions (from the Question Bank)</label>
-      <div id="t_picker" style="max-height:260px; overflow:auto"></div>
-      <div class="error" id="t_err"></div>
-      <button class="gold" id="t_create" style="width:100%">Create Test (Draft)</button>
-      <p class="muted">The test will first be created as a Draft — press Publish in the list to open it for students.</p>
-    </details>` : ""}
-    <div class="card"><h3>📝 ${isStaff() ? "All Tests" : "मेरे टेस्ट — My Tests"}</h3>
-    <p class="muted" style="margin:0">${isStaff() ? "Tests are grouped by subject — open a subject to see its tests." : "टेस्ट विषय के हिसाब से दिए गए हैं — विषय खोलकर अपना टेस्ट चुनें।"}</p></div>
-    ${groupedTests()}
-    <div id="tResults"></div>`;
+      ${!isStaff() && totalCount ? `<div class="prog" style="margin-top:12px"><div style="width:${donePct}%"></div></div>` : ""}
+    </div>
 
-  if (isStaff()) {
+    ${isStaff() ? `<div class="seg-tabs" style="margin-bottom:14px">
+      <button type="button" class="${testViewTab === "list" ? "on" : ""}" data-tvtab="list">📋 सभी टेस्ट (${totalCount})</button>
+      <button type="button" class="${testViewTab === "create" ? "on" : ""}" data-tvtab="create">➕ नया टेस्ट बनाएँ</button>
+    </div>` : ""}
+
+    ${(!isStaff() || testViewTab === "list") ? `
+      <div class="card" style="padding:14px 16px">
+        <div class="row" style="margin-bottom:10px">
+          <input type="search" id="testSearchIn" value="${esc(testSearch)}" placeholder="🔍 टेस्ट, विषय या अध्याय खोजें…" style="flex:2 1 180px">
+          ${presentSubs.length ? `<select id="testSubjFilter" style="flex:1 1 130px">
+            <option value="">सभी विषय</option>
+            ${presentSubs.map(s => `<option value="${s.id}" ${String(testFilterSubj) === String(s.id) ? "selected" : ""}>${esc(s.name)}</option>`).join("")}
+          </select>` : ""}
+        </div>
+        <div class="fee-filter-pills">
+          ${isStaff() ? `
+            <button type="button" class="chip ${testFilterStatus === "all" ? "on" : ""}" data-tst="all">सभी (${totalCount})</button>
+            <button type="button" class="chip ${testFilterStatus === "published" ? "on" : ""}" data-tst="published">🟢 Live (${pubCount})</button>
+            <button type="button" class="chip ${testFilterStatus === "draft" ? "on" : ""}" data-tst="draft">🟡 Draft (${draftCount})</button>
+          ` : `
+            <button type="button" class="chip ${testFilterStatus === "all" ? "on" : ""}" data-tst="all">सभी (${totalCount})</button>
+            <button type="button" class="chip ${testFilterStatus === "pending" ? "on" : ""}" data-tst="pending">🆕 बाकी (${pendingCount})</button>
+            <button type="button" class="chip ${testFilterStatus === "done" ? "on" : ""}" data-tst="done">✅ पूरे (${doneCount})</button>
+          `}
+        </div>
+      </div>
+      ${groupedTests()}
+      <div id="tResults"></div>
+    ` : `
+      <div class="card">
+        <h3>➕ नया टेस्ट बनाएँ • Create Test</h3>
+        <label>टेस्ट का नाम • Test Name</label><input id="t_title" placeholder="e.g. Science — Chapter 5 Test">
+        <div class="row">
+          <div><label>कक्षा • Class</label><select id="t_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
+          <div><label>समय (मिनट, 0 = Unlimited)</label><input id="t_dur" type="number" value="0" min="0"></div>
+        </div>
+        <div class="row">
+          <div><label>Negative Marking</label><input id="t_neg" type="number" value="0" min="0" step="0.25"></div>
+          <div><label>Pass %</label><input id="t_pass" type="number" value="33" min="0" max="100"></div>
+          <div><label>Attempts (0 = Unlimited)</label><input id="t_max" type="number" value="0" min="0"></div>
+        </div>
+        <div class="row">
+          <div><label>🕒 Start time (optional)</label><input id="t_start" type="datetime-local"></div>
+          <div><label>🕒 End time (optional)</label><input id="t_end" type="datetime-local"></div>
+        </div>
+        <label class="checkrow"><input type="checkbox" id="t_instant" checked><span><b>⚡ Practice Mode</b> — उत्तर चुनते ही सही/गलत और व्याख्या तुरंत दिखेगी</span></label>
+        <div class="v45-head" style="margin-top:12px">
+          <label style="margin:0">प्रश्न चुनें (Question Bank)</label>
+          <span class="pill blue" id="t_sel_cnt">0 सवाल • 0 अंक</span>
+        </div>
+        <select id="t_qsubj" style="margin-bottom:8px"><option value="">सभी विषय के प्रश्न</option></select>
+        <div id="t_picker" class="test-picker"></div>
+        <div class="error" id="t_err"></div>
+        <button type="button" class="gold" id="t_create" style="width:100%; margin-top:8px">📝 Create Test (Draft)</button>
+        <p class="muted" style="margin:6px 0 0">टेस्ट पहले Draft में बनेगा — छात्रों को दिखाने के लिए लिस्ट में 🚀 Publish दबाएँ।</p>
+      </div>
+    `}`;
+
+  // Filter & tab wiring
+  $app.querySelectorAll("[data-tvtab]").forEach(b => b.onclick = () => { testViewTab = b.dataset.tvtab; renderTests(); });
+  $app.querySelectorAll("[data-tst]").forEach(b => b.onclick = () => { testFilterStatus = b.dataset.tst; renderTests(); });
+  const tsIn = document.getElementById("testSearchIn");
+  if (tsIn) tsIn.oninput = () => { testSearch = tsIn.value; renderTests(); setTimeout(() => { const n = document.getElementById("testSearchIn"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0); };
+  const tsSub = document.getElementById("testSubjFilter");
+  if (tsSub) tsSub.onchange = () => { testFilterSubj = tsSub.value; renderTests(); };
+
+  if (isStaff() && testViewTab === "create") {
     const picker = document.getElementById("t_picker");
     const classSel = document.getElementById("t_class");
+    const qSubjSel = document.getElementById("t_qsubj");
+    const selCnt = document.getElementById("t_sel_cnt");
+    const updateCount = () => {
+      const ids = [...picker.querySelectorAll(".tq:checked")].map(x => +x.value);
+      const mks = ids.reduce((s, id) => s + (+((allQ || []).find(q => q.id === id) || {}).marks || 1), 0);
+      if (selCnt) selCnt.textContent = `${ids.length} सवाल • ${mks} अंक`;
+    };
     const drawPicker = () => {
       const cid = +classSel.value;
-      const list = (allQ || []).filter(q => q.class_id === cid);
+      const sid = qSubjSel.value;
+      const list = (allQ || []).filter(q => q.class_id === cid && (!sid || String(q.subject_id) === sid));
       picker.innerHTML = list.length ? list.map(q => `
         <label class="checkrow"><input type="checkbox" class="tq" value="${q.id}">
-        <span><b>${esc(q.question_text.slice(0, 80))}</b><br><span class="muted">${esc(q.qtype)} • ${q.marks} marks</span></span></label>`).join("")
-        : `<p class="muted">There are no questions in the Question Bank for this class — first add questions in Manage → Question Bank.</p>`;
+        <span><b>${esc(q.question_text.slice(0, 90))}</b><br><span class="muted">${esc(q.qtype)} • ${q.marks} अंक</span></span></label>`).join("")
+        : `<p class="muted" style="margin:6px 0">इस कक्षा/विषय में Question Bank में कोई प्रश्न नहीं है — पहले Manage → Question Bank में प्रश्न जोड़ें।</p>`;
+      picker.querySelectorAll(".tq").forEach(cb => cb.onchange = updateCount);
+      updateCount();
     };
-    classSel.onchange = drawPicker; drawPicker();
+    const syncSubjDrop = () => {
+      const cid = +classSel.value;
+      const subs = (subjects || []).filter(s => s.class_id === cid);
+      qSubjSel.innerHTML = `<option value="">सभी विषय के प्रश्न</option>` + subs.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
+      drawPicker();
+    };
+    classSel.onchange = syncSubjDrop;
+    qSubjSel.onchange = drawPicker;
+    syncSubjDrop();
     document.getElementById("t_create").onclick = async () => {
       const err = document.getElementById("t_err"); err.textContent = "";
       const title = document.getElementById("t_title").value.trim();
       const picked = [...picker.querySelectorAll(".tq:checked")].map(x => +x.value);
-      if (!title) { err.textContent = "Enter the test name"; return; }
-      if (!picked.length) { err.textContent = "Choose at least one question"; return; }
+      if (!title) { err.textContent = "टेस्ट का नाम लिखें"; return; }
+      if (!picked.length) { err.textContent = "कम से कम एक प्रश्न चुनें"; return; }
       const stV = document.getElementById("t_start").value, enV = document.getElementById("t_end").value;
-      if (stV && enV && new Date(enV) <= new Date(stV)) { err.textContent = "End time start time se baad hona chahiye"; return; }
+      if (stV && enV && new Date(enV) <= new Date(stV)) { err.textContent = "End time, Start time के बाद होना चाहिए"; return; }
       const total = picked.reduce((s, id) => s + (+((allQ || []).find(q => q.id === id) || {}).marks || 1), 0);
       const pickedQs = picked.map(id => (allQ || []).find(q => q.id === id)).filter(Boolean);
       const subjIds = [...new Set(pickedQs.map(q => q.subject_id).filter(Boolean))];
@@ -2082,42 +2226,47 @@ async function renderTests() {
       if (error) { err.textContent = error.message; return; }
       const { error: e2 } = await sb.from("test_questions").insert(picked.map((qid, i) => ({ test_id: t.id, question_id: qid, sort_order: i + 1 })));
       if (e2) { err.textContent = e2.message; return; }
-      toast("Test created 📝 — now Publish it"); renderTests();
+      toast("टेस्ट बन गया 📝 — अब 🚀 Publish करें");
+      testViewTab = "list";
+      renderTests();
     };
+  }
+
+  if (isStaff() && testViewTab === "list") {
     $app.querySelectorAll("[data-tpub]").forEach(b => b.onclick = async () => {
       const [id, st] = b.dataset.tpub.split(":");
       const publishing = st !== "published";
       const { error } = await sb.from("tests").update({ status: publishing ? "published" : "draft" }).eq("id", +id);
       if (error) return toast("Error: " + error.message);
       if (publishing) {
-        const t = (tests || []).find(x => x.id === +id);
+        const t = allTests.find(x => x.id === +id);
         if (t) await notifyClassStudents(t.class_id, "test", "📝 New Test: " + t.title, "A new test has started — go to the Tests section and take it.");
       }
       renderTests();
     });
     $app.querySelectorAll("[data-tdel]").forEach(b => b.onclick = async () => {
-      if (!confirm("This test and all its results will be deleted. Are you sure?")) return;
+      if (!confirm("यह टेस्ट और इसके सभी रिज़ल्ट डिलीट हो जाएँगे। क्या आप पक्का डिलीट करना चाहते हैं?")) return;
       const { error } = await sb.from("tests").delete().eq("id", +b.dataset.tdel);
       if (error) return toast("Error: " + error.message);
       renderTests();
     });
     $app.querySelectorAll("[data-tresults]").forEach(b => b.onclick = () => renderTestResults(+b.dataset.tresults));
-    $app.querySelectorAll("[data-tpreview]").forEach(b => b.onclick = () => previewTest((tests || []).find(x => x.id === +b.dataset.tpreview)));
+    $app.querySelectorAll("[data-tpreview]").forEach(b => b.onclick = () => previewTest(allTests.find(x => x.id === +b.dataset.tpreview)));
     $app.querySelectorAll("[data-tinst]").forEach(b => b.onclick = async () => {
       const [id, on] = b.dataset.tinst.split(":");
       const { error } = await sb.from("tests").update({ instant_feedback: on !== "1" }).eq("id", +id);
       if (error) return toast("Error: " + error.message);
-      toast(on === "1" ? "⚡ Practice Mode off — answers will be shown after submission" : "⚡ Practice Mode on — the answer shows as soon as an option is chosen");
+      toast(on === "1" ? "⚡ Practice Mode बंद — उत्तर सबमिट के बाद दिखेंगे" : "⚡ Practice Mode चालू — उत्तर चुनते ही व्याख्या दिखेगी");
       renderTests();
     });
   }
   $app.querySelectorAll("[data-tstart]").forEach(b => b.onclick = () => {
-    const t = (tests || []).find(x => x.id === +b.dataset.tstart);
+    const t = allTests.find(x => x.id === +b.dataset.tstart);
     startTest(t, attemptsOf(t.id));
   });
   $app.querySelectorAll("[data-tresult]").forEach(b => b.onclick = () => {
     const [aid, tid] = b.dataset.tresult.split(":");
-    showResult(+aid, (tests || []).find(x => x.id === +tid));
+    showResult(+aid, allTests.find(x => x.id === +tid));
   });
 }
 
