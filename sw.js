@@ -2,12 +2,12 @@
 // 1) Network-first app-shell caching so students always get the newest version
 //    when online AND can still open the app & cached assets when offline.
 // 2) Web Push notifications for announcements, homework, live classes & tests.
-const CACHE_NAME = "ta-shell-v79";
+const CACHE_NAME = "ta-shell-v80";
 const SHELL_ASSETS = [
   "./",
   "index.html",
   "styles.css?v=78",
-  "app.js?v=79",
+  "app.js?v=80",
   "config.js?v=16",
   "icon.svg?v=31",
   "manifest.webmanifest",

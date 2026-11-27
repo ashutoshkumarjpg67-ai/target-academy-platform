@@ -640,7 +640,7 @@ async function renderHome() {
 
 /* ---------------- Manage: academic structure (staff) ---------------- */
 async function renderManage() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   const [{ data: classes }, { data: subjects }, { data: chapters }] = await Promise.all([
     sb.from("classes").select("id,name,sort_order").order("sort_order"),
     sb.from("subjects").select("id,name,name_hi,class_id,sort_order").order("sort_order"),
@@ -1224,7 +1224,7 @@ async function renderQBank(subjects, chapters) {
 
 /* ---------------- Users & enrollment (admin) ---------------- */
 async function renderUsers() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   const [{ data: users }, { data: enr }] = await Promise.all([
     sb.from("profiles").select("id,full_name,role,phone,father_name,mother_name,dob,admission_date,address,photo_path,roll_number,session,created_at").order("created_at", { ascending: false }),
     sb.from("enrollments").select("user_id,class_id"),
@@ -1460,7 +1460,7 @@ async function uploadTo(bucket, classId, file) {
 }
 
 async function renderStudy() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   // Phase 2: students fetch only their own classes' subjects/chapters and
   // published notes/materials (RLS already scoped students, this is the
   // defence-in-depth + payload cut). Staff keep the full lists (drafts
@@ -2272,7 +2272,7 @@ async function renderTests() {
 
 async function renderTestResults(testId) {
   const host = document.getElementById("tResults");
-  host.innerHTML = `<div class="card"><div class="loading">Loading results…</div></div>`;
+  host.innerHTML = skeletonHTML("list");
   const [{ data: attempts }, { data: testRow }] = await Promise.all([
     sb.from("test_attempts").select("student_id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("test_id", testId).order("percent", { ascending: false, nullsFirst: false }),
     sb.from("tests").select("title").eq("id", testId).maybeSingle(),
@@ -2336,7 +2336,7 @@ function gradeAnsText(a) {
 }
 async function renderGrading() {
   if (!isStaff()) { $app.innerHTML = `<div class="card"><p>Staff only.</p></div>`; return; }
-  $app.innerHTML = `<div class="card"><div class="loading">Loading grading queue…</div></div>`;
+  $app.innerHTML = skeletonHTML("list");
   const { data: rows, error } = await sb.rpc("get_pending_grading", { p_status: gradingFilter });
   if (error) { $app.innerHTML = `<div class="card"><p>Error: ${esc(error.message)}</p></div>`; return; }
   const list = rows || [];
@@ -2386,7 +2386,7 @@ async function renderGrading() {
 /* ----- Staff preview of a test (questions + answers, no attempt created) ----- */
 async function previewTest(test) {
   if (!test) return;
-  $app.innerHTML = `<div class="loading">Opening the test…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   curView = "preview"; hidePageHead();
   try { history.pushState({ view: "preview" }, ""); } catch (e) {}
   const { data: tqs } = await sb.from("test_questions").select("question_id, sort_order").eq("test_id", test.id).order("sort_order");
@@ -3150,7 +3150,7 @@ async function renderMore() {
 /* ---------------- Student Profile (Phase 1 — design photo 10) ---------------- */
 async function renderProfile() {
   if (isStaff()) { renderMore(); return; }
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   let myPhoto = null;
   if (profile.photo_path) {
     const { data } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
@@ -3801,7 +3801,7 @@ async function renderTutor() {
 /* ---------------- Doubts ---------------- */
 let doubtTab = "open"; // staff filter: open | answered | all
 async function renderDoubts() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   const doubtsQ = isStaff()
     ? sb.from("doubts").select("id,student_id,class_id,subject_id,question_text,answer_text,ai_answer,answered_by,status,created_at,answered_at").order("created_at", { ascending: false })
     : sb.from("doubts").select("id,student_id,class_id,subject_id,question_text,answer_text,ai_answer,answered_by,status,created_at,answered_at").eq("student_id", me.id).order("created_at", { ascending: false });
@@ -4324,7 +4324,7 @@ async function renderAttendance() {
 let ttClassId = null;
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 async function renderTimetable() {
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   if (!ttClassId && myClasses.length) ttClassId = myClasses[0].id;
   const [{ data: entries }, { data: subjects }, { data: staffList }] = await Promise.all([
     sb.from("timetable_entries").select("id,class_id,subject_id,teacher_id,weekday,starts_at,ends_at").eq("class_id", ttClassId).order("starts_at"),
@@ -4403,7 +4403,7 @@ const studioLangLabel = (m) => ({ bilingual: "Hindi + English", hindi: "Hindi", 
 
 async function renderStudio() {
   if (studioCurrent) { renderStudioResult(); return; }
-  $app.innerHTML = `<div class="loading">Loading…</div>`;
+  $app.innerHTML = skeletonHTML("list");
   const [gRes, sRes, cRes] = await Promise.all([
     sb.from("studio_generations").select("id,created_at,youtube_url,video_title,class_label,subject,chapter,language_mode,difficulty").eq("user_id", me.id).order("created_at", { ascending: false }).limit(50),
     sb.from("subjects").select("id,name,class_id").order("sort_order"),
