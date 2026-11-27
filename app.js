@@ -3119,12 +3119,20 @@ function pickBestVoice(isMostlyEnglish = false) {
   return best;
 }
 let _cloudAudio = null, _cloudFails = 0;
+const _SILENT_WAV = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+function getSharedAudio() {
+  if (!_cloudAudio) _cloudAudio = new Audio();
+  return _cloudAudio;
+}
 function stopCloudAudio() {
-  if (_cloudAudio) { try { _cloudAudio.pause(); } catch (_) {} _cloudAudio = null; }
+  if (_cloudAudio) { try { _cloudAudio.pause(); _cloudAudio.currentTime = 0; } catch (_) {} }
 }
 async function speakText(text, btn) {
+  const isPlaying = _cloudAudio && !_cloudAudio.paused && _cloudAudio.src && _cloudAudio.src !== _SILENT_WAV;
   // Tap again on the same button = stop (cloud or browser voice).
-  if (_cloudAudio && _sayBtn === btn) { stopCloudAudio(); _saySession++; if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; return; }
+  if ((isPlaying || (_sayBtn === btn && btn?.innerHTML?.includes("Loading"))) && _sayBtn === btn) {
+    stopCloudAudio(); _saySession++; if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; return;
+  }
   stopCloudAudio();
   if (_sayBtn && _sayBtn !== btn) { _sayBtn.innerHTML = "🔊 Listen"; _sayBtn = null; }
   const plain = String(text || "")
@@ -3132,19 +3140,22 @@ async function speakText(text, btn) {
     .replace(/\$+/g, "").replace(/\\[a-zA-Z]+/g, " ")
     .replace(/[*#_`>~{}[\]|•]/g, " ")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ")
-    .replace(/\s+/g, " ").trim().slice(0, 900);
+    .replace(/\s+/g, " ").trim().slice(0, 700);
   if (!plain) return;
   if (navigator.onLine !== false && _cloudFails < 2) {
     const session = ++_saySession;
-    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    if ("speechSynthesis" in window && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
     if (btn) { btn.innerHTML = "⏳ Loading…"; _sayBtn = btn; }
+    // Unlock audio element synchronously inside the user tap so mobile Chrome/Safari allows playback after async fetch.
+    const a = getSharedAudio();
+    try { a.src = _SILENT_WAV; a.muted = true; await a.play().catch(() => {}); a.pause(); a.muted = false; } catch (_) {}
     try {
       const url = await cloudTTS(sb, plain, "Kore");
-      if (session !== _saySession) return;           // user pressed something else meanwhile
-      const a = new Audio(url);
-      _cloudAudio = a;
-      const reset = () => { if (_cloudAudio === a) { _cloudAudio = null; } if (_sayBtn === btn) { if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; } };
+      if (session !== _saySession) return;
+      const reset = () => { if (session === _saySession && _sayBtn === btn) { if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; } };
       a.onended = reset; a.onerror = reset;
+      a.src = url;
+      a.muted = false;
       if (btn) btn.innerHTML = "⏹ Stop";
       await a.play();
       _cloudFails = 0;
@@ -3152,7 +3163,7 @@ async function speakText(text, btn) {
     } catch (_) {
       _cloudFails++;
       if (session !== _saySession) return;
-      _cloudAudio = null;
+      stopCloudAudio();
       if (btn) { btn.innerHTML = "🔊 Listen"; }
       if (_sayBtn === btn) _sayBtn = null;
     }
@@ -3170,7 +3181,8 @@ function speakBrowser(text, btn) {
   }
   _saySession++;
   const mySession = _saySession;
-  speechSynthesis.cancel();
+  const wasBusy = speechSynthesis.speaking || speechSynthesis.pending;
+  if (wasBusy) speechSynthesis.cancel();
   if (_sayBtn && _sayBtn !== btn) _sayBtn.innerHTML = "🔊 Listen";
   const clean = String(text || "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -3204,11 +3216,13 @@ function speakBrowser(text, btn) {
     if (voice) u.voice = voice;
     u.rate = 0.96;
     u.pitch = 1.02;
-    u.onend = () => { if (mySession === _saySession) setTimeout(next, 120); };
+    u.onend = () => { if (mySession === _saySession) setTimeout(next, 100); };
     u.onerror = reset;
+    try { speechSynthesis.resume(); } catch (_) {}
     speechSynthesis.speak(u);
   };
-  next();
+  if (wasBusy) setTimeout(next, 60);
+  else next();
 }
 
 /* ---------------- AI Edge Function calls (shared retry) ----------------
