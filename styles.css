@@ -1851,3 +1851,11 @@ button.wa-btn{
   .tut-grid{grid-template-columns:1fr}
   .bubble{max-width:90%}
 }
+
+/* v75 — offline snapshot note */
+.offline-snap-note{
+  background:#fef3c7; color:#78350f; border:1px solid rgba(245,158,11,.4);
+  border-radius:14px; padding:10px 14px; margin-bottom:14px;
+  font-size:13px; font-weight:700;
+}
+[data-theme="dark"] .offline-snap-note{background:rgba(245,158,11,.16); color:#fde68a}

@@ -3,7 +3,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=16";
 import { downloadCSV } from "./js/csv.js?v=1";
 import { fmtKB, compressImageFile, enhanceFilePicker } from "./js/media.js?v=1";
 import { applyBrandLogo } from "./js/branding.js?v=1";
-import { skeletonHTML, initOfflineBanner, recordStudyActivity, streakCardHTML, shareWhatsAppReport } from "./js/enhancements.js?v=1";
+import { skeletonHTML, initOfflineBanner, recordStudyActivity, streakCardHTML, shareWhatsAppReport, cloudTTS, loadSnapshot, watchSnapshots, subscribeRealtime } from "./js/enhancements.js?v=2";
 
 /* Photo upload prep (kept here: uses toast). Compression itself lives in js/media.js. */
 async function prepareUploadFile(file) {
@@ -239,6 +239,8 @@ async function boot() {
   }
   $logout.classList.remove("hidden");
   if ($bell) { $bell.classList.remove("hidden"); $bell.onclick = () => { tab = "notif"; renderShell(); }; refreshBell(); }
+  subscribeRealtime(sb, me.id, (n) => { refreshBell(); toast("🔔 " + ((n && n.title) || "नई सूचना")); });
+  watchSnapshots($app, () => ({ userId: me && me.id, tab, view: curView, online: navigator.onLine !== false }));
   syncPush();
   renderShell();
 }
@@ -332,6 +334,14 @@ function renderShell() {
   }
   $tabbar.querySelectorAll("button").forEach(b => b.onclick = () => { tab = b.dataset.tab; renderShell(); });
   setPageHead();
+  if (navigator.onLine === false) {
+    const snap = loadSnapshot(me.id, tab);
+    if (snap) {
+      const when = new Date(snap.t).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+      $app.innerHTML = `<div class="offline-snap-note">📡 ऑफ़लाइन — ${when} को सेव किया गया डेटा दिख रहा है</div>${snap.html}`;
+      return;
+    }
+  }
   ({ home: renderHome, study: renderStudy, tests: renderTests, fees: isStaff() ? renderFeesPage : renderFeesStudent, doubts: renderDoubts, tutor: renderTutor, live: renderLive, top: renderTop, notif: renderNotifs, homework: renderHomework, attendance: renderAttendance, timetable: renderTimetable, manage: renderManage, users: renderUsers, studio: renderStudio, grading: renderGrading, more: renderMore, profile: renderProfile }[tab] || renderHome)();
 }
 
@@ -3108,7 +3118,48 @@ function pickBestVoice(isMostlyEnglish = false) {
   }
   return best;
 }
-function speakText(text, btn) {
+let _cloudAudio = null, _cloudFails = 0;
+function stopCloudAudio() {
+  if (_cloudAudio) { try { _cloudAudio.pause(); } catch (_) {} _cloudAudio = null; }
+}
+async function speakText(text, btn) {
+  // Tap again on the same button = stop (cloud or browser voice).
+  if (_cloudAudio && _sayBtn === btn) { stopCloudAudio(); _saySession++; if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; return; }
+  stopCloudAudio();
+  if (_sayBtn && _sayBtn !== btn) { _sayBtn.innerHTML = "🔊 Listen"; _sayBtn = null; }
+  const plain = String(text || "")
+    .replace(/```[\s\S]*?```/g, " ").replace(/https?:\/\/\S+/g, " ")
+    .replace(/\$+/g, "").replace(/\\[a-zA-Z]+/g, " ")
+    .replace(/[*#_`>~{}[\]|•]/g, " ")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ")
+    .replace(/\s+/g, " ").trim().slice(0, 900);
+  if (!plain) return;
+  if (navigator.onLine !== false && _cloudFails < 2) {
+    const session = ++_saySession;
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    if (btn) { btn.innerHTML = "⏳ Loading…"; _sayBtn = btn; }
+    try {
+      const url = await cloudTTS(sb, plain, "Kore");
+      if (session !== _saySession) return;           // user pressed something else meanwhile
+      const a = new Audio(url);
+      _cloudAudio = a;
+      const reset = () => { if (_cloudAudio === a) { _cloudAudio = null; } if (_sayBtn === btn) { if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; } };
+      a.onended = reset; a.onerror = reset;
+      if (btn) btn.innerHTML = "⏹ Stop";
+      await a.play();
+      _cloudFails = 0;
+      return;
+    } catch (_) {
+      _cloudFails++;
+      if (session !== _saySession) return;
+      _cloudAudio = null;
+      if (btn) { btn.innerHTML = "🔊 Listen"; }
+      if (_sayBtn === btn) _sayBtn = null;
+    }
+  }
+  speakBrowser(text, btn);
+}
+function speakBrowser(text, btn) {
   if (!("speechSynthesis" in window)) { toast("Listening isn't supported in this browser"); return; }
   if (speechSynthesis.speaking && _sayBtn === btn) {
     _saySession++;

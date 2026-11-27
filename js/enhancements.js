@@ -140,3 +140,60 @@ export function shareWhatsAppReport(info = {}) {
   window.open(url, "_blank", "noopener");
   return text;
 }
+
+/* ---------- v75: Cloud TTS (Gemini voice via Supabase Edge Function "tts") ---------- */
+const _ttsCache = new Map();
+function pcmToWavBlob(b64, rate = 24000) {
+  const bin = atob(b64), len = bin.length;
+  const buf = new ArrayBuffer(44 + len), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + len, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, len, true);
+  const u8 = new Uint8Array(buf, 44);
+  for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+  return new Blob([buf], { type: "audio/wav" });
+}
+export async function cloudTTS(sb, text, voice = "Kore") {
+  const key = voice + "|" + text;
+  if (_ttsCache.has(key)) return _ttsCache.get(key);
+  const { data, error } = await sb.functions.invoke("tts", { body: { text, voice } });
+  if (error || !data || !data.audio) throw new Error((data && data.error) || (error && error.message) || "tts failed");
+  const url = URL.createObjectURL(pcmToWavBlob(data.audio, data.sampleRate || 24000));
+  if (_ttsCache.size >= 12) { const first = _ttsCache.keys().next().value; try { URL.revokeObjectURL(_ttsCache.get(first)); } catch (_) {} _ttsCache.delete(first); }
+  _ttsCache.set(key, url);
+  return url;
+}
+
+/* ---------- v75: Offline snapshots (last seen screen readable without internet) ---------- */
+const SNAP_TABS = new Set(["home", "study", "tests", "fees", "attendance", "timetable", "homework", "notif", "live", "top"]);
+const snapKey = (uid, tab) => `ta_snap_${uid}_${tab}`;
+export function saveSnapshot(uid, tab, html) {
+  if (!uid || !SNAP_TABS.has(tab) || !html || html.length > 400000) return;
+  if (html.includes("skel-wrap") || html.includes('class="loading"')) return;
+  try { localStorage.setItem(snapKey(uid, tab), JSON.stringify({ t: Date.now(), html })); } catch (_) { /* quota */ }
+}
+export function loadSnapshot(uid, tab) {
+  try { const o = JSON.parse(localStorage.getItem(snapKey(uid, tab)) || "null"); return o && o.html ? o : null; } catch (_) { return null; }
+}
+export function watchSnapshots(root, getCtx) {
+  let timer = null;
+  const run = () => {
+    const c = getCtx();
+    if (!c || !c.userId || !c.online || c.view !== "tab") return;
+    saveSnapshot(c.userId, c.tab, root.innerHTML);
+  };
+  new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(run, 1800); }).observe(root, { childList: true, subtree: true });
+}
+
+/* ---------- v75: Realtime notifications ---------- */
+let _rt = null;
+export function subscribeRealtime(sb, userId, onNotice) {
+  if (_rt || !userId) return;
+  try {
+    _rt = sb.channel("ta-notif-" + userId)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: "user_id=eq." + userId }, (p) => { try { onNotice(p.new); } catch (_) {} })
+      .subscribe();
+  } catch (_) { _rt = null; }
+}
