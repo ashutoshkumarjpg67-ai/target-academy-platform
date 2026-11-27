@@ -3077,23 +3077,87 @@ function startVoice(target, btn) {
   rec.onend = done;
   try { rec.start(); } catch (_) { done(); }
 }
-let _sayBtn = null;
+let _sayBtn = null, _saySession = 0;
+if ("speechSynthesis" in window) {
+  try { speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => { speechSynthesis.getVoices(); }; } catch (_) {}
+}
+function pickBestVoice(isMostlyEnglish = false) {
+  const voices = speechSynthesis.getVoices() || [];
+  if (!voices.length) return null;
+  const targetLang = isMostlyEnglish ? "en-in" : "hi";
+  const score = (v) => {
+    const n = (v.name || "").toLowerCase();
+    const l = (v.lang || "").toLowerCase();
+    let s = 0;
+    if (l.startsWith(targetLang)) s += 100;
+    else if (l.startsWith("hi")) s += 85;
+    else if (l.startsWith("en-in")) s += 70;
+    else return -1;
+    if (n.includes("natural") || n.includes("neural")) s += 60;
+    if (n.includes("swara") || n.includes("madhur") || n.includes("neerja") || n.includes("prabhat")) s += 45;
+    if (n.includes("google")) s += 40;
+    if (n.includes("online") || n.includes("enhanced") || n.includes("premium") || n.includes("lekha")) s += 30;
+    if (v.localService === false) s += 15;
+    if (n.includes("espeak") || n.includes("compact")) s -= 40;
+    return s;
+  };
+  let best = null, bestScore = -1;
+  for (const v of voices) {
+    const sc = score(v);
+    if (sc > bestScore) { bestScore = sc; best = v; }
+  }
+  return best;
+}
 function speakText(text, btn) {
   if (!("speechSynthesis" in window)) { toast("Listening isn't supported in this browser"); return; }
-  if (speechSynthesis.speaking && _sayBtn === btn) { speechSynthesis.cancel(); return; }
-  speechSynthesis.cancel();
-  const clean = (text || "").replace(/\$+/g, "").replace(/\\[a-zA-Z]+/g, " ").replace(/[*#_`>~{}]/g, "").slice(0, 1200);
-  if (!clean.trim()) return;
-  const u = new SpeechSynthesisUtterance(clean);
-  u.lang = "hi-IN"; u.rate = 0.98;
-  const v = speechSynthesis.getVoices().find(v => (v.lang || "").toLowerCase().startsWith("hi"));
-  if (v) u.voice = v;
-  if (btn) {
-    btn.innerHTML = "⏹ Stop"; _sayBtn = btn;
-    const reset = () => { if (_sayBtn === btn) { btn.innerHTML = "🔊 Listen"; _sayBtn = null; } };
-    u.onend = reset; u.onerror = reset;
+  if (speechSynthesis.speaking && _sayBtn === btn) {
+    _saySession++;
+    speechSynthesis.cancel();
+    if (btn) btn.innerHTML = "🔊 Listen";
+    _sayBtn = null;
+    return;
   }
-  speechSynthesis.speak(u);
+  _saySession++;
+  const mySession = _saySession;
+  speechSynthesis.cancel();
+  if (_sayBtn && _sayBtn !== btn) _sayBtn.innerHTML = "🔊 Listen";
+  const clean = String(text || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\$+/g, "")
+    .replace(/\\[a-zA-Z]+/g, " ")
+    .replace(/[*#_`>~{}[\]|•]/g, " ")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2400);
+  if (!clean) return;
+  const hiChars = (clean.match(/[\u0900-\u097F]/g) || []).length;
+  const isMostlyEnglish = hiChars < clean.length * 0.12;
+  const voice = pickBestVoice(isMostlyEnglish);
+  const parts = clean.match(/[^।.!?\n]+[।.!?\n]*/g) || [clean];
+  const chunks = [];
+  let buf = "";
+  for (const p of parts) {
+    if ((buf + " " + p).length > 180 && buf) { chunks.push(buf.trim()); buf = p; }
+    else buf += " " + p;
+  }
+  if (buf.trim()) chunks.push(buf.trim());
+  const reset = () => { if (mySession === _saySession && _sayBtn === btn) { if (btn) btn.innerHTML = "🔊 Listen"; _sayBtn = null; } };
+  if (btn) { btn.innerHTML = "⏹ Stop"; _sayBtn = btn; }
+  let idx = 0;
+  const next = () => {
+    if (mySession !== _saySession || idx >= chunks.length) { reset(); return; }
+    const u = new SpeechSynthesisUtterance(chunks[idx++]);
+    u.lang = voice?.lang || (isMostlyEnglish ? "en-IN" : "hi-IN");
+    if (voice) u.voice = voice;
+    u.rate = 0.96;
+    u.pitch = 1.02;
+    u.onend = () => { if (mySession === _saySession) setTimeout(next, 120); };
+    u.onerror = reset;
+    speechSynthesis.speak(u);
+  };
+  next();
 }
 
 /* ---------------- AI Edge Function calls (shared retry) ----------------
