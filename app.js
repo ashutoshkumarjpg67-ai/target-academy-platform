@@ -791,13 +791,15 @@ async function renderManage() {
   renderQBank(subjects || [], chapters || []);
 }
 
-/* ---------------- Fees (staff) ---------------- */
+/* ---------------- Fees (staff — v77 clean 3-tab flexible redesign) ---------------- */
+let feeAdminTab = "records"; // records | create | plans
+let feeFilterStatus = "all"; // all | pending | partial | paid
+let feeFilterClass = "";
+let feeSearch = "";
+let feeCreateMode = "class"; // class | student
+
 async function renderFeesPage() {
-  $app.innerHTML = `
-    <div class="card pol-sec"><h3>💰 Fees • फ़ीस प्रबंधन</h3>
-      <p class="muted" style="margin:0">Set the fee for a class, create fees for the whole class and record payments. When a fee is created or a payment is recorded, the student automatically gets a notification (app + phone).</p>
-    </div>
-    <div id="fees"></div>`;
+  $app.innerHTML = `<div id="fees">${skeletonHTML("dashboard")}</div>`;
   renderFees();
 }
 async function renderFees() {
@@ -805,17 +807,12 @@ async function renderFees() {
   if (!host) return;
   const [{ data: plans }, { data: records }, { data: enrAll }, { data: allFee }] = await Promise.all([
     sb.from("fee_plans").select("class_id,fee_type,amount"),
-    sb.from("fee_records").select("id,student_id,class_id,fee_type,period,amount,paid_amount,status,due_date").order("created_at", { ascending: false }).limit(60).is("deleted_at", null),
+    sb.from("fee_records").select("id,student_id,class_id,fee_type,period,amount,paid_amount,status,due_date").order("created_at", { ascending: false }).limit(120).is("deleted_at", null),
     sb.from("enrollments").select("user_id,class_id"),
-    // Header totals must cover ALL records, not just the 60 shown in the list.
     sb.from("fee_records").select("amount,paid_amount,period").is("deleted_at", null),
   ]);
-  // Phase 2: names/phones only for the students in the 60 records shown
-  // (previously every student profile was downloaded).
-  const feeStudIds = [...new Set((records || []).map(r => r.student_id).filter(Boolean))];
-  const { data: studs } = feeStudIds.length ? await sb.from("profiles").select("id,full_name,phone").in("id", feeStudIds) : { data: [] };
-  // Phase 4: fee_payments ledger for exactly the records shown
-  // (RLS scopes it: admin all, teachers taught classes only).
+  const allStudIds = [...new Set([...(records || []).map(r => r.student_id), ...(enrAll || []).map(e => e.user_id)].filter(Boolean))];
+  const { data: studs } = allStudIds.length ? await sb.from("profiles").select("id,full_name,phone").in("id", allStudIds) : { data: [] };
   const feeRecIds = (records || []).map(r => r.id);
   const { data: ledger } = feeRecIds.length ? await sb.from("fee_payments").select("id,fee_record_id,amount,received_by,note,created_at").in("fee_record_id", feeRecIds).order("created_at", { ascending: true }) : { data: [] };
   const recvIds = [...new Set((ledger || []).map(p => p.received_by).filter(Boolean))];
@@ -823,16 +820,8 @@ async function renderFees() {
   const recvName = (id) => (recv || []).find(s => s.id === id)?.full_name || "Staff";
   const ledgerOf = (rid) => (ledger || []).filter(p => p.fee_record_id === rid);
   const ledgerDate = (d) => new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-  const ledgerHtml = (r) => {
-    const pays = ledgerOf(r.id);
-    const sum = pays.reduce((s, p) => s + +p.amount, 0);
-    const match = pays.length && Math.abs(sum - +r.paid_amount) < 0.01;
-    return `<div id="ledger-${r.id}" class="hidden" style="margin-top:8px">
-      <p class="muted" style="margin:0 0 6px">🧾 Payment Ledger — entries from the fee_payments ledger, oldest first. ${pays.length ? (match ? `Ledger total ₹${sum.toLocaleString("en-IN")} matches the record paid amount ✅` : `⚠️ Ledger total ₹${sum.toLocaleString("en-IN")} does not match the record paid amount ₹${(+r.paid_amount).toLocaleString("en-IN")}`) : "No payment entries yet for this record."}</p>
-      ${pays.map(p => `<div class="item"><div><div class="t" style="font-size:14px">₹${(+p.amount).toLocaleString("en-IN")}</div>
-        <div class="s">${ledgerDate(p.created_at)}${p.note ? ` • ${esc(p.note)}` : ""} • Received by: ${esc(recvName(p.received_by))}</div></div></div>`).join("")}
-    </div>`;
-  };
+  const clsNameOf = (cid) => (myClasses.find(c => c.id === cid) || {}).name || "";
+  const TYPE_HI = { monthly: "मासिक फ़ीस", yearly: "वार्षिक फ़ीस", admission: "प्रवेश फ़ीस", exam: "परीक्षा फ़ीस", other: "अन्य फ़ीस" };
   const planOf = (cid, type) => (plans || []).find(p => p.class_id === cid && p.fee_type === type)?.amount ?? "";
   const nameOf = (id) => (studs || []).find(s => s.id === id)?.full_name || "Student";
   const phoneOf = (id) => (studs || []).find(s => s.id === id)?.phone || "";
@@ -841,58 +830,218 @@ async function renderFees() {
     const num = p.length === 10 ? "91" + p : p;
     return (num ? `https://wa.me/${num}` : "https://wa.me/") + `?text=${encodeURIComponent(text)}`;
   };
-  const waReceipt = (r) => {
-    const due = +r.amount - +r.paid_amount;
-    const cls = (myClasses.find(c => c.id === r.class_id) || {}).name || "";
-    return `🙏 Namaste! Target Academy Coaching Centre — Fee Receipt ✅\n\nStudent: ${nameOf(r.student_id)}${cls ? ` (${cls})` : ""}\nFee: ${r.fee_type} — ${r.period}\nJama (Paid): ₹${r.paid_amount} / ₹${r.amount}` + (due > 0 ? `\nBaki (Due): ₹${due}` : `\nPoori fee jama ho gayi hai ✅`) + `\n\nDhanyavaad! 🙏`;
+  const waMessage = (r) => {
+    const due = Math.max(0, +r.amount - +r.paid_amount);
+    const cls = clsNameOf(r.class_id);
+    if (+r.paid_amount > 0 && due === 0) {
+      return `🙏 Namaste! Target Academy Coaching Centre — Fee Receipt ✅\n\nStudent: ${nameOf(r.student_id)}${cls ? ` (${cls})` : ""}\nFee: ${r.fee_type} — ${r.period}\nPaid: ₹${r.paid_amount} / ₹${r.amount}\nStatus: पूरी फ़ीस जमा हो गई है ✅\n\nDhanyavaad! 🙏`;
+    }
+    return `🙏 Namaste! Target Academy Coaching Centre — Fee Reminder 🧾\n\nStudent: ${nameOf(r.student_id)}${cls ? ` (${cls})` : ""}\nFee: ${r.fee_type} — ${r.period}\nTotal: ₹${r.amount}${+r.paid_amount > 0 ? ` | Paid: ₹${r.paid_amount}` : ""}\nDue (बकाया): ₹${due}${r.due_date ? `\nDue Date: ${r.due_date}` : ""}\n\nकृपया समय पर फ़ीस जमा करें। धन्यवाद! 🙏`;
   };
-  const totalDue = (allFee || []).reduce((s, r) => s + (+r.amount - +r.paid_amount), 0);
+  const ledgerHtml = (r) => {
+    const pays = ledgerOf(r.id);
+    const sum = pays.reduce((s, p) => s + +p.amount, 0);
+    return `<div id="ledger-${r.id}" class="fee-ledger hidden">
+      <div class="fee-ledger-h">🧾 भुगतान रजिस्टर (${pays.length} एंट्री • कुल ₹${sum.toLocaleString("en-IN")})</div>
+      ${pays.length ? pays.map(p => `<div class="fee-lrow"><b>₹${(+p.amount).toLocaleString("en-IN")}</b><span>${ledgerDate(p.created_at)}${p.note ? ` • ${esc(p.note)}` : ""} • ${esc(recvName(p.received_by))}</span></div>`).join("") : `<div class="muted" style="font-size:12.5px">अभी कोई भुगतान दर्ज नहीं है।</div>`}
+    </div>`;
+  };
+
+  const totalDue = (allFee || []).reduce((s, r) => s + Math.max(0, +r.amount - +r.paid_amount), 0);
   const totalPaid = (allFee || []).reduce((s, r) => s + +r.paid_amount, 0);
+  const grandTotal = totalPaid + totalDue;
+  const colPct = grandTotal ? Math.round((totalPaid / grandTotal) * 100) : 0;
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const now = new Date();
   const defaultPeriod = `${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  const nextMonthD = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const nextPeriod = `${MONTHS[nextMonthD.getMonth()]} ${nextMonthD.getFullYear()}`;
   const thisMonthPaid = (allFee || []).filter(r => r.period === defaultPeriod).reduce((s, r) => s + +r.paid_amount, 0);
 
-  host.innerHTML = `
-    <div class="card pol-sec v45rows"><h3>💰 Fees • फ़ीस</h3>
-      <div class="stats">
-        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">कुल वसूली • Collected</div></div>
-        <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n">₹${totalDue.toLocaleString("en-IN")}</div><div class="l">कुल बकाया • Due</div></div>
-        <div class="stat"><div class="si" style="background:#e8f1fe">🧾</div><div class="n">₹${thisMonthPaid.toLocaleString("en-IN")}</div><div class="l">इस माह वसूली • ${esc(defaultPeriod)}</div></div>
-      </div>
-      <label>Set Fees by Class</label>
-      ${myClasses.map(c => `<div class="row" style="align-items:flex-end; margin-bottom:4px">
-        <div style="flex:1.4"><b>${esc(c.name)}</b></div>
-        <div><label>Monthly (₹)</label><input type="number" id="fp_m_${c.id}" value="${planOf(c.id, "monthly")}" placeholder="e.g. 800"></div>
-        <div><label>Yearly (₹)</label><input type="number" id="fp_y_${c.id}" value="${planOf(c.id, "yearly")}" placeholder="e.g. 8000"></div>
-        <div style="flex:0 0 auto"><button class="light small" data-fpsave="${c.id}">Save</button></div>
-      </div>`).join("")}
-      <label style="margin-top:14px">Create Fee for the Whole Class</label>
-      <div class="row">
-        <div><label>Class</label><select id="fg_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
-        <div><label>Type</label><select id="fg_type"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="admission">Admission</option><option value="exam">Exam</option><option value="other">Other</option></select></div>
-      </div>
-      <div class="row">
-        <div><label>Period</label><input id="fg_period" value="${defaultPeriod}"></div>
-        <div><label>Amount (₹)</label><input id="fg_amount" type="number" placeholder="Auto-filled from the fee set above"></div>
-        <div><label>Due Date</label><input id="fg_due" type="date"></div>
-      </div>
-      <div class="error" id="fg_err"></div>
-      <button class="gold" id="fg_gen" style="width:100%">Create Fee for All Students</button>
-      <div class="v45-head" style="margin-top:14px"><label style="margin:0">Recent Fee Records • ताज़ा फ़ीस रिकॉर्ड</label><button class="light small" id="feesCsvBtn">⬇ CSV Download</button></div>
-      <p class="muted" style="margin:0 0 6px">Tap 📲 WhatsApp on any paid record to send the fee receipt on WhatsApp. Tap 🗑 Delete to remove a record created by mistake.</p>
-      ${(records || []).map(r => `<div><div class="item"><div>
-          <div class="t" style="font-size:14px">${esc(nameOf(r.student_id))}</div>
-          <div class="s">${esc(r.fee_type)} • ${esc(r.period)} • ₹${r.paid_amount} of ₹${r.amount} paid${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">Due ₹${+r.amount - +r.paid_amount}</b>` : ""}</div></div>
-        <span style="display:flex; gap:6px; align-items:center">
-          <span class="pill ${r.status === "paid" ? "green" : r.status === "partial" ? "gold" : "red"}">${r.status === "paid" ? "Paid • जमा" : r.status === "partial" ? "Partial • आंशिक" : "Pending • बाकी"}</span>
-          ${+r.paid_amount > 0 ? `<a class="light small" style="background:#e7f8ee; border-color:#25d366; color:#075e54; text-decoration:none" href="${waLink(phoneOf(r.student_id), waReceipt(r))}" target="_blank" rel="noopener">📲 WhatsApp</a>` : ""}
-          ${r.status !== "paid" ? `<button class="light small" data-fpay="${r.id}:${+r.amount - +r.paid_amount}">+ Payment</button>` : ""}
-          <button class="light small" data-ledger="${r.id}">🧾 Ledger</button>
-          <button class="light small" style="color:var(--bad)" data-fdel="${r.id}">🗑 Delete</button>
-        </span></div>${ledgerHtml(r)}</div>`).join("") || `<p class="muted">No fee records yet.</p>`}
-    </div>`;
+  const recs = records || [];
+  const cntAll = recs.length;
+  const cntPend = recs.filter(r => r.status === "pending" || (+r.paid_amount === 0 && +r.amount > 0)).length;
+  const cntPart = recs.filter(r => r.status === "partial").length;
+  const cntPaid = recs.filter(r => r.status === "paid").length;
 
+  const q = feeSearch.trim().toLowerCase();
+  const filtered = recs.filter(r => {
+    if (feeFilterStatus !== "all" && r.status !== feeFilterStatus) return false;
+    if (feeFilterClass && String(r.class_id) !== String(feeFilterClass)) return false;
+    if (q) {
+      const hay = `${nameOf(r.student_id)} ${r.period} ${r.fee_type} ${clsNameOf(r.class_id)}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const recordCard = (r) => {
+    const amt = +r.amount || 0;
+    const paid = +r.paid_amount || 0;
+    const due = Math.max(0, amt - paid);
+    const pct = amt ? Math.min(100, Math.round((paid / amt) * 100)) : 0;
+    const isPaid = r.status === "paid" || due === 0;
+    const pillCls = isPaid ? "green" : r.status === "partial" ? "gold" : "red";
+    const pillTxt = isPaid ? "Paid • जमा" : r.status === "partial" ? "Partial • आंशिक" : "Pending • बाकी";
+    return `<div class="fee-card">
+      <div class="fee-top">
+        <div style="min-width:0; flex:1">
+          <div class="fee-sname">${esc(nameOf(r.student_id))}</div>
+          <div class="fee-meta">${clsNameOf(r.class_id) ? esc(clsNameOf(r.class_id)) + " • " : ""}${esc(TYPE_HI[r.fee_type] || r.fee_type)} • ${esc(r.period)}${r.due_date ? ` • देय: ${esc(r.due_date)}` : ""}</div>
+        </div>
+        <span class="pill ${pillCls}">${pillTxt}</span>
+      </div>
+      <div class="fee-amts">
+        <span>जमा: <b>₹${paid.toLocaleString("en-IN")}</b> / ₹${amt.toLocaleString("en-IN")}</span>
+        <span style="color:${due > 0 ? "var(--bad)" : "var(--ok)"}; font-weight:800">${due > 0 ? `बाकी ₹${due.toLocaleString("en-IN")}` : "पूरा जमा ✅"}</span>
+      </div>
+      <div class="prog fee-bar"><div style="width:${pct}%; background:${isPaid ? "var(--ok)" : "linear-gradient(90deg,var(--accent),var(--gold))"}"></div></div>
+      <div class="fee-acts">
+        ${!isPaid ? `<button type="button" class="small" data-ffull="${r.id}">✅ Full Pay (₹${due.toLocaleString("en-IN")})</button>` : ""}
+        ${!isPaid ? `<button type="button" class="light small" data-fpart-toggle="${r.id}">💵 Partial Pay</button>` : ""}
+        <a class="fee-wa-link" href="${waLink(phoneOf(r.student_id), waMessage(r))}" target="_blank" rel="noopener">📲 ${isPaid ? "Receipt" : "Remind"}</a>
+        <button type="button" class="light small" data-ledger="${r.id}">🧾 Ledger</button>
+        <button type="button" class="light small" style="color:var(--bad)" data-fdel="${r.id}" title="Delete">🗑</button>
+      </div>
+      ${!isPaid ? `<div id="paybox-${r.id}" class="fee-paybox hidden">
+        <input type="number" id="payin-${r.id}" min="1" max="${due}" value="${due}" placeholder="राशि (₹)">
+        <button type="button" class="gold small" data-fpay-save="${r.id}">जमा करें ✅</button>
+      </div>` : ""}
+      ${ledgerHtml(r)}
+    </div>`;
+  };
+
+  host.innerHTML = `
+    <div class="card fee-summary">
+      <div class="fee-sum-head">
+        <div>
+          <h3 style="margin:0">💰 फ़ीस प्रबंधन • Fee Hub</h3>
+          <p class="muted" style="margin:3px 0 0; font-size:12.5px">कुल वसूली ${colPct}% — हर बदलाव पर छात्र को ऑटो नोटिफ़िकेशन जाता है</p>
+        </div>
+        <button type="button" class="light small" id="feesCsvBtn">⬇ CSV</button>
+      </div>
+      <div class="stats" style="margin-top:12px">
+        <div class="stat"><div class="si" style="background:#e2f4ec">✅</div><div class="n" style="color:var(--ok)">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">कुल वसूली</div></div>
+        <div class="stat"><div class="si" style="background:#fdecea">⏳</div><div class="n" style="color:${totalDue > 0 ? "var(--bad)" : "var(--ok)"}">₹${totalDue.toLocaleString("en-IN")}</div><div class="l">कुल बकाया</div></div>
+        <div class="stat"><div class="si" style="background:#e8f1fe">📅</div><div class="n">₹${thisMonthPaid.toLocaleString("en-IN")}</div><div class="l">${esc(defaultPeriod)}</div></div>
+      </div>
+      <div class="prog" style="margin-top:12px"><div style="width:${colPct}%"></div></div>
+    </div>
+
+    <div class="seg-tabs" style="margin-bottom:14px">
+      <button type="button" class="${feeAdminTab === "records" ? "on" : ""}" data-fatab="records">📋 रिकॉर्ड (${cntAll})</button>
+      <button type="button" class="${feeAdminTab === "create" ? "on" : ""}" data-fatab="create">➕ नई फ़ीस</button>
+      <button type="button" class="${feeAdminTab === "plans" ? "on" : ""}" data-fatab="plans">⚙️ क्लास रेट</button>
+    </div>
+
+    ${feeAdminTab === "records" ? `
+      <div class="card" style="padding:14px 16px">
+        <div class="row" style="margin-bottom:10px">
+          <input type="search" id="feeSearchIn" value="${esc(feeSearch)}" placeholder="🔍 छात्र, महीना या कक्षा खोजें…" style="flex:2 1 180px">
+          <select id="feeClsFilter" style="flex:1 1 120px">
+            <option value="">सभी कक्षाएँ</option>
+            ${myClasses.map(c => `<option value="${c.id}" ${String(feeFilterClass) === String(c.id) ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="fee-filter-pills">
+          <button type="button" class="chip ${feeFilterStatus === "all" ? "on" : ""}" data-fst="all">सभी (${cntAll})</button>
+          <button type="button" class="chip ${feeFilterStatus === "pending" ? "on" : ""}" data-fst="pending">🔴 बाकी (${cntPend})</button>
+          <button type="button" class="chip ${feeFilterStatus === "partial" ? "on" : ""}" data-fst="partial">🟡 आंशिक (${cntPart})</button>
+          <button type="button" class="chip ${feeFilterStatus === "paid" ? "on" : ""}" data-fst="paid">🟢 जमा (${cntPaid})</button>
+        </div>
+      </div>
+      <div class="fee-list">${filtered.map(recordCard).join("") || `<div class="card"><p class="muted" style="margin:0; text-align:center">इस फ़िल्टर में कोई फ़ीस रिकॉर्ड नहीं मिला।</p></div>`}</div>
+    ` : ""}
+
+    ${feeAdminTab === "create" ? `
+      <div class="card">
+        <h3>➕ नई फ़ीस बनाएँ • Create Fee</h3>
+        <p class="muted" style="margin:0 0 12px">आप पूरी कक्षा के लिए एक साथ या किसी एक छात्र के लिए अलग राशि (डिस्काउंट/एडमिशन/एग्ज़ाम) के साथ फ़ीस बना सकते हैं।</p>
+        <div class="seg-tabs" style="margin-bottom:12px">
+          <button type="button" class="${feeCreateMode === "class" ? "on" : ""}" data-fcmode="class">👥 पूरी कक्षा (Whole Class)</button>
+          <button type="button" class="${feeCreateMode === "student" ? "on" : ""}" data-fcmode="student">👤 एक छात्र (Single Student)</button>
+        </div>
+        <div class="row">
+          <div><label>कक्षा • Class</label><select id="fg_class">${myClasses.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
+          <div><label>प्रकार • Type</label><select id="fg_type"><option value="monthly">मासिक • Monthly</option><option value="yearly">वार्षिक • Yearly</option><option value="admission">प्रवेश • Admission</option><option value="exam">परीक्षा • Exam</option><option value="other">अन्य • Other</option></select></div>
+        </div>
+        ${feeCreateMode === "student" ? `<div id="fg_stud_wrap"><label>छात्र चुनें • Select Student</label><select id="fg_student"></select></div>` : ""}
+        <label>अवधि • Period <span class="muted" style="font-weight:600">(या नीचे से तुरंत चुनें)</span></label>
+        <div class="fee-filter-pills" style="margin-bottom:8px">
+          <button type="button" class="tut-pill" data-fper="${esc(defaultPeriod)}">📅 ${esc(defaultPeriod)}</button>
+          <button type="button" class="tut-pill" data-fper="${esc(nextPeriod)}">⏭ ${esc(nextPeriod)}</button>
+          <button type="button" class="tut-pill" data-fper="Session ${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}">🎓 Session ${now.getFullYear()}-${String(now.getFullYear() + 1).slice(-2)}</button>
+        </div>
+        <div class="row">
+          <div><input id="fg_period" value="${esc(defaultPeriod)}" placeholder="e.g. Nov 2026"></div>
+          <div><input id="fg_amount" type="number" placeholder="राशि ₹ (जैसे 800)"></div>
+          <div><input id="fg_due" type="date" title="Due Date (Optional)"></div>
+        </div>
+        <div class="error" id="fg_err"></div>
+        <button type="button" class="gold" id="fg_gen" style="width:100%; margin-top:6px">${feeCreateMode === "class" ? "👥 पूरी कक्षा के लिए फ़ीस बनाएँ" : "👤 चुने गए छात्र के लिए फ़ीस बनाएँ"}</button>
+      </div>
+    ` : ""}
+
+    ${feeAdminTab === "plans" ? `
+      <div class="card">
+        <h3>⚙️ कक्षा के हिसाब से फ़ीस रेट • Class Fee Plans</h3>
+        <p class="muted" style="margin:0 0 12px">यहाँ हर कक्षा की मासिक व वार्षिक फ़ीस सेट करें—नई फ़ीस बनाते समय यह राशि अपने आप भर जाएगी।</p>
+        ${myClasses.map(c => `<div class="fee-plan-row">
+          <div class="fee-plan-name">🎓 ${esc(c.name)}</div>
+          <div class="row" style="align-items:flex-end">
+            <div><label style="margin-top:4px">मासिक (₹)</label><input type="number" id="fp_m_${c.id}" value="${planOf(c.id, "monthly")}" placeholder="800"></div>
+            <div><label style="margin-top:4px">वार्षिक (₹)</label><input type="number" id="fp_y_${c.id}" value="${planOf(c.id, "yearly")}" placeholder="8000"></div>
+            <div style="flex:0 0 auto"><button type="button" class="small" data-fpsave="${c.id}">💾 Save</button></div>
+          </div>
+        </div>`).join("") || `<p class="muted">अभी कोई कक्षा नहीं है।</p>`}
+      </div>
+    ` : ""}`;
+
+  // Tab switchers
+  host.querySelectorAll("[data-fatab]").forEach(b => b.onclick = () => { feeAdminTab = b.dataset.fatab; renderFees(); });
+  host.querySelectorAll("[data-fcmode]").forEach(b => b.onclick = () => { feeCreateMode = b.dataset.fcmode; renderFees(); });
+
+  // Search & filters (Records tab)
+  const sIn = document.getElementById("feeSearchIn");
+  if (sIn) sIn.oninput = () => { feeSearch = sIn.value; renderFees(); setTimeout(() => { const n = document.getElementById("feeSearchIn"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0); };
+  const cSel = document.getElementById("feeClsFilter");
+  if (cSel) cSel.onchange = () => { feeFilterClass = cSel.value; renderFees(); };
+  host.querySelectorAll("[data-fst]").forEach(b => b.onclick = () => { feeFilterStatus = b.dataset.fst; renderFees(); });
+
+  // Record payment helper
+  const recordPayment = async (rec, payAmt) => {
+    const due = Math.max(0, +rec.amount - +rec.paid_amount);
+    const vNum = Number(payAmt);
+    if (!Number.isFinite(vNum) || vNum <= 0) return toast("सही राशि डालें (0 से बड़ी संख्या)");
+    if (vNum > due) return toast(`राशि बकाया ₹${due} से ज़्यादा नहीं हो सकती`);
+    const paid = +rec.paid_amount + vNum;
+    const status = paid >= +rec.amount ? "paid" : "partial";
+    const { error } = await sb.from("fee_records").update({ paid_amount: paid, status, updated_at: new Date().toISOString() }).eq("id", rec.id);
+    if (error) return toast("Error: " + error.message);
+    const dueLeft = Math.max(0, +rec.amount - paid);
+    notifyUsers([rec.student_id], "fee", "💰 Fee Paid",
+      `₹${vNum} has been paid towards your ${rec.fee_type} fee (${rec.period}). Total paid: ₹${paid} / ₹${rec.amount}${dueLeft > 0 ? ` • Due: ₹${dueLeft}` : " • Full fee paid ✅"}`);
+    toast(`₹${vNum.toLocaleString("en-IN")} जमा दर्ज ✅`);
+    renderFees();
+  };
+  host.querySelectorAll("[data-ffull]").forEach(b => b.onclick = async () => {
+    const rec = recs.find(r => r.id === +b.dataset.ffull);
+    if (!rec) return;
+    const due = Math.max(0, +rec.amount - +rec.paid_amount);
+    if (!confirm(`${nameOf(rec.student_id)} की पूरी बकाया राशि ₹${due.toLocaleString("en-IN")} जमा दर्ज करें?`)) return;
+    await recordPayment(rec, due);
+  });
+  host.querySelectorAll("[data-fpart-toggle]").forEach(b => b.onclick = () => {
+    const box = document.getElementById("paybox-" + b.dataset.fpartToggle);
+    if (box) { box.classList.toggle("hidden"); const inp = box.querySelector("input"); if (inp && !box.classList.contains("hidden")) inp.focus(); }
+  });
+  host.querySelectorAll("[data-fpay-save]").forEach(b => b.onclick = async () => {
+    const rec = recs.find(r => r.id === +b.dataset.fpaySave);
+    const inp = document.getElementById("payin-" + b.dataset.fpaySave);
+    if (rec && inp) await recordPayment(rec, inp.value);
+  });
+
+  // Plans save
   host.querySelectorAll("[data-fpsave]").forEach(b => b.onclick = async () => {
     const cid = +b.dataset.fpsave;
     for (const [type, el] of [["monthly", "fp_m_"], ["yearly", "fp_y_"]]) {
@@ -901,69 +1050,81 @@ async function renderFees() {
       const { error } = await sb.from("fee_plans").upsert({ class_id: cid, fee_type: type, amount: +v }, { onConflict: "class_id,fee_type" });
       if (error) return toast("Error: " + error.message);
     }
-    toast("Fee saved 💰"); renderFees();
+    toast("क्लास फ़ीस रेट सेव हो गया 💰"); renderFees();
   });
-  const syncAmt = () => {
-    const cid = +document.getElementById("fg_class").value;
-    const type = document.getElementById("fg_type").value;
-    const p = (plans || []).find(x => x.class_id === cid && x.fee_type === type);
-    if (p) document.getElementById("fg_amount").value = p.amount;
+
+  // Create Fee tab wiring
+  const fgClass = document.getElementById("fg_class");
+  const fgType = document.getElementById("fg_type");
+  const fgStud = document.getElementById("fg_student");
+  const syncStudents = () => {
+    if (!fgStud || !fgClass) return;
+    const cid = +fgClass.value;
+    const ids = (enrAll || []).filter(e => e.class_id === cid).map(e => e.user_id);
+    fgStud.innerHTML = ids.length
+      ? ids.map(id => `<option value="${esc(id)}">${esc(nameOf(id))}</option>`).join("")
+      : `<option value="">इस कक्षा में कोई छात्र नहीं है</option>`;
   };
-  document.getElementById("fg_class").onchange = syncAmt;
-  document.getElementById("fg_type").onchange = syncAmt;
+  const syncAmt = () => {
+    if (!fgClass || !fgType) return;
+    const p = (plans || []).find(x => x.class_id === +fgClass.value && x.fee_type === fgType.value);
+    const aEl = document.getElementById("fg_amount");
+    if (p && aEl) aEl.value = p.amount;
+    syncStudents();
+  };
+  if (fgClass) fgClass.onchange = syncAmt;
+  if (fgType) fgType.onchange = syncAmt;
   syncAmt();
-  document.getElementById("fg_gen").onclick = async () => {
+  host.querySelectorAll("[data-fper]").forEach(b => b.onclick = () => {
+    const inp = document.getElementById("fg_period");
+    if (inp) inp.value = b.dataset.fper;
+  });
+  const fgGen = document.getElementById("fg_gen");
+  if (fgGen) fgGen.onclick = async () => {
     const err = document.getElementById("fg_err"); err.textContent = "";
-    const cid = +document.getElementById("fg_class").value;
-    const type = document.getElementById("fg_type").value;
+    const cid = +fgClass.value;
+    const type = fgType.value;
     const period = document.getElementById("fg_period").value.trim();
     const amount = +document.getElementById("fg_amount").value;
     const due = document.getElementById("fg_due").value || null;
-    if (!period || !amount) { err.textContent = "Enter the period and amount"; return; }
-    const studsInClass = (enrAll || []).filter(e => e.class_id === cid).map(e => e.user_id);
-    if (!studsInClass.length) { err.textContent = "There is no student in this class"; return; }
-    const rows = studsInClass.map(sid => ({ student_id: sid, class_id: cid, fee_type: type, period, amount, due_date: due, recorded_by: me.id }));
+    if (!period || !amount) { err.textContent = "अवधि (Period) और राशि (Amount) दोनों भरें"; return; }
+    let targets = [];
+    if (feeCreateMode === "student") {
+      const sid = fgStud && fgStud.value;
+      if (!sid) { err.textContent = "कृपया एक छात्र चुनें"; return; }
+      targets = [sid];
+    } else {
+      targets = (enrAll || []).filter(e => e.class_id === cid).map(e => e.user_id);
+      if (!targets.length) { err.textContent = "इस कक्षा में कोई छात्र नामांकित नहीं है"; return; }
+    }
+    const rows = targets.map(sid => ({ student_id: sid, class_id: cid, fee_type: type, period, amount, due_date: due, recorded_by: me.id }));
     const { error } = await sb.from("fee_records").upsert(rows, { onConflict: "student_id,fee_type,period", ignoreDuplicates: true });
     if (error) { err.textContent = error.message; return; }
-    notifyUsers(studsInClass, "fee", "🧾 New Fee Created",
-      `${type} fee (${period}): ₹${amount}${due ? ` • Last date to pay: ${due}` : ""} — please pay on time.`);
-    toast(`Fee created — for ${studsInClass.length} students 🧾`); renderFees();
+    notifyUsers(targets, "fee", "🧾 New Fee Created",
+      `${type} fee (${period}): ₹${amount}${due ? ` • Last date: ${due}` : ""} — please pay on time.`);
+    toast(`फ़ीस बन गई — ${targets.length} छात्र के लिए 🧾`);
+    feeAdminTab = "records";
+    renderFees();
   };
-  host.querySelectorAll("[data-fpay]").forEach(b => b.onclick = async () => {
-    const [id, dueAmt] = b.dataset.fpay.split(":");
-    const v = prompt(`How much was paid (₹)? (Due ₹${dueAmt})`);
-    if (!v) return;
-    const rec = (records || []).find(r => r.id === +id);
-    const due = +rec.amount - +rec.paid_amount;
-    const vNum = Number(v);
-    if (!Number.isFinite(vNum) || vNum <= 0) return toast("Enter a valid amount (number greater than 0)");
-    if (vNum > due) return toast(`Amount cannot exceed the due ₹${due}`);
-    const paid = +rec.paid_amount + vNum;
-    const status = paid >= +rec.amount ? "paid" : "partial";
-    const { error } = await sb.from("fee_records").update({ paid_amount: paid, status, updated_at: new Date().toISOString() }).eq("id", +id);
-    if (error) return toast("Error: " + error.message);
-    const dueLeft = +rec.amount - paid;
-    notifyUsers([rec.student_id], "fee", "💰 Fee Paid",
-      `₹${v} has been paid towards your ${rec.fee_type} fee (${rec.period}). Total paid: ₹${paid} / ₹${rec.amount}${dueLeft > 0 ? ` • Due: ₹${dueLeft}` : " • Full fee paid ✅"}`);
-    toast("Payment recorded ✅"); renderFees();
-  });
+
   host.querySelectorAll("[data-fdel]").forEach(b => b.onclick = async () => {
-    const rec = (records || []).find(r => r.id === +b.dataset.fdel);
+    const rec = recs.find(r => r.id === +b.dataset.fdel);
     if (!rec) return;
-    const warn = +rec.paid_amount > 0 ? `\n\n⚠️ Warning: ₹${rec.paid_amount} is already PAID on this record — deleting will also remove that payment record!` : "";
-    if (!confirm(`Delete this fee record?\n\n${nameOf(rec.student_id)} — ${rec.fee_type} (${rec.period}) • ₹${rec.amount}${warn}\n\nThis cannot be undone.`)) return;
-    const reason = prompt("Deletion reason (required — saved to the audit log):");
+    const warn = +rec.paid_amount > 0 ? `\n\n⚠️ चेतावनी: इस रिकॉर्ड पर ₹${rec.paid_amount} जमा है — डिलीट करने पर भुगतान रिकॉर्ड भी हट जाएगा!` : "";
+    if (!confirm(`फ़ीस रिकॉर्ड डिलीट करें?\n\n${nameOf(rec.student_id)} — ${rec.fee_type} (${rec.period}) • ₹${rec.amount}${warn}`)) return;
+    const reason = prompt("डिलीट करने का कारण लिखें (ऑडिट लॉग के लिए ज़रूरी):");
     if (!reason || !reason.trim()) return;
     const { error } = await sb.rpc("soft_delete_fee_record", { p_fee_record_id: rec.id, p_reason: reason.trim() });
     if (error) return toast("Error: " + error.message);
-    toast("Fee record deleted 🗑"); renderFees();
+    toast("फ़ीस रिकॉर्ड डिलीट हो गया 🗑"); renderFees();
   });
   host.querySelectorAll("[data-ledger]").forEach(b => b.onclick = () => document.getElementById("ledger-" + b.dataset.ledger).classList.toggle("hidden"));
-  document.getElementById("feesCsvBtn").onclick = () => {
-    if (!(records || []).length) return toast("No fee records to download");
+  const csvBtn = document.getElementById("feesCsvBtn");
+  if (csvBtn) csvBtn.onclick = () => {
+    if (!recs.length) return toast("डाउनलोड करने के लिए कोई फ़ीस रिकॉर्ड नहीं है");
     downloadCSV("fees.csv", ["Student", "Class", "Type", "Period", "Amount", "Paid", "Balance", "Status", "Due Date"],
-      records.map(r => [nameOf(r.student_id), (myClasses.find(c => c.id === r.class_id) || {}).name || "", r.fee_type, r.period, r.amount, r.paid_amount, +r.amount - +r.paid_amount, r.status, r.due_date || ""]));
-    toast("CSV downloaded ⬇");
+      recs.map(r => [nameOf(r.student_id), clsNameOf(r.class_id), r.fee_type, r.period, r.amount, r.paid_amount, +r.amount - +r.paid_amount, r.status, r.due_date || ""]));
+    toast("CSV डाउनलोड हो गई ⬇");
   };
 }
 
@@ -1676,45 +1837,64 @@ async function renderFeesStudent() {
     const monthly = recs.filter(r => r.fee_type === "monthly").sort((a, b) => (pIdx(b) ?? -1) - (pIdx(a) ?? -1));
     const others = recs.filter(r => r.fee_type !== "monthly");
     const history = recs.filter(r => +r.paid_amount > 0).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    const grandStud = totalPaid + Math.max(0, totalDue);
+    const paidPct = grandStud ? Math.round((totalPaid / grandStud) * 100) : 100;
     const feeRow = (r) => {
-      const [pl, pc] = pillOf(r); const bal = +r.amount - +r.paid_amount;
-      return `<div class="item"><div style="display:flex; gap:10px; align-items:center">
-          <div class="nicon" style="background:#e8f1fe">🗓️</div>
-          <div><div class="t" style="font-size:14.5px">${r.fee_type === "monthly" ? periodHi(r) : esc(TYPE_HI[r.fee_type] || r.fee_type) + " • " + esc(r.period)}</div>
-          <div class="s">${esc(TYPE_HI[r.fee_type] || "")} • ₹${(+r.amount).toLocaleString("en-IN")}${+r.paid_amount ? ` • जमा ₹${(+r.paid_amount).toLocaleString("en-IN")}` : ""}${bal > 0 ? ` • <b style="color:var(--bad)">बाकी ₹${bal.toLocaleString("en-IN")}</b>` : ""}${r.due_date ? ` • देय तिथि: ${new Date(r.due_date + "T00:00:00").toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}` : ""}</div></div></div>
-          <span class="pill ${pc}">${pl}</span></div>`;
+      const [pl, pc] = pillOf(r); const amt = +r.amount || 0; const paid = +r.paid_amount || 0; const bal = Math.max(0, amt - paid);
+      const pct = amt ? Math.min(100, Math.round((paid / amt) * 100)) : 0;
+      return `<div class="fee-card">
+        <div class="fee-top">
+          <div style="min-width:0; flex:1">
+            <div class="fee-sname">${r.fee_type === "monthly" ? periodHi(r) : esc(TYPE_HI[r.fee_type] || r.fee_type) + " • " + esc(r.period)}</div>
+            <div class="fee-meta">${esc(TYPE_HI[r.fee_type] || "")}${r.due_date ? ` • देय तिथि: ${new Date(r.due_date + "T00:00:00").toLocaleDateString("hi-IN", { day: "numeric", month: "short" })}` : ""}</div>
+          </div>
+          <span class="pill ${pc}">${pl}</span>
+        </div>
+        <div class="fee-amts">
+          <span>जमा: <b>₹${paid.toLocaleString("en-IN")}</b> / ₹${amt.toLocaleString("en-IN")}</span>
+          <span style="color:${bal > 0 ? "var(--bad)" : "var(--ok)"}; font-weight:800">${bal > 0 ? `बाकी ₹${bal.toLocaleString("en-IN")}` : "पूरा जमा ✅"}</span>
+        </div>
+        <div class="prog fee-bar"><div style="width:${pct}%; background:${bal === 0 ? "var(--ok)" : "linear-gradient(90deg,var(--accent),var(--gold))"}"></div></div>
+      </div>`;
     };
     $app.innerHTML = `
-      <div class="card"><h3 style="margin-top:0">💰 फ़ीस विवरण • Fee Details</h3>
-        <div class="s muted">कुल बकाया • Total Due</div>
-        <div class="due-big" style="color:${totalDue > 0 ? "var(--bad)" : "var(--ok)"}">₹${totalDue.toLocaleString("en-IN")}</div>
-        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px">
-          <span class="pill ${totalDue > 0 ? "red" : "green"}">${totalDue > 0 ? "Pending • बाकी है" : "सब जमा • All Clear 🎉"}</span>
-          ${nextDue ? `<span class="s" style="font-weight:700">अगली देय तिथि: ${new Date(nextDue.due_date + "T00:00:00").toLocaleDateString("hi-IN", { day: "numeric", month: "long", year: "numeric" })}</span>` : ""}
+      <div class="card fee-summary">
+        <div class="fee-sum-head">
+          <div>
+            <div class="muted" style="font-size:12px; font-weight:700">कुल बकाया • Total Due</div>
+            <div class="due-big" style="color:${totalDue > 0 ? "var(--bad)" : "var(--ok)"}">₹${Math.max(0, totalDue).toLocaleString("en-IN")}</div>
+          </div>
+          <span class="pill ${totalDue > 0 ? "red" : "green"}">${totalDue > 0 ? "बाकी है" : "सब जमा 🎉"}</span>
         </div>
-        <p class="muted" style="margin:10px 0 0">अब तक कुल जमा: ₹${totalPaid.toLocaleString("en-IN")} • ${recs.length} फ़ीस रिकॉर्ड</p>
+        <div class="stats" style="margin-top:12px">
+          <div class="stat"><div class="n">₹${grandStud.toLocaleString("en-IN")}</div><div class="l">कुल फ़ीस</div></div>
+          <div class="stat"><div class="n" style="color:var(--ok)">₹${totalPaid.toLocaleString("en-IN")}</div><div class="l">जमा हो गई</div></div>
+          <div class="stat"><div class="n">${paidPct}%</div><div class="l">पूरा हुआ</div></div>
+        </div>
+        <div class="prog" style="margin-top:12px"><div style="width:${paidPct}%"></div></div>
+        ${nextDue ? `<p class="muted" style="margin:10px 0 0; font-weight:700">📅 अगली देय तिथि: ${new Date(nextDue.due_date + "T00:00:00").toLocaleDateString("hi-IN", { day: "numeric", month: "long", year: "numeric" })}</p>` : ""}
       </div>
-      ${ledgerCard}
-      <div class="seg-tabs">
-        <button class="${feesTab === "monthly" ? "on" : ""}" data-ftab="monthly">Monthly Fees</button>
-        <button class="${feesTab === "history" ? "on" : ""}" data-ftab="history">Payment History</button>
+      <div class="seg-tabs" style="margin-bottom:14px">
+        <button type="button" class="${feesTab === "monthly" ? "on" : ""}" data-ftab="monthly">🗓️ फ़ीस लिस्ट (${recs.length})</button>
+        <button type="button" class="${feesTab === "history" ? "on" : ""}" data-ftab="history">🧾 रसीदें (${ledgerPays.length || history.length})</button>
       </div>
       ${feesTab === "monthly" ? `
-        <div class="card"><h3 style="margin-top:0">🗓️ मासिक फ़ीस • Monthly Fees</h3>
-          ${monthly.map(feeRow).join("") || `<p class="muted" style="margin:0">अभी कोई मासिक फ़ीस रिकॉर्ड नहीं है।</p>`}
-        </div>
-        ${others.length ? `<div class="card"><h3 style="margin-top:0">🧾 अन्य फ़ीस • Other Fees</h3>${others.map(feeRow).join("")}</div>` : ""}`
+        <div class="fee-list">${[...monthly, ...others].map(feeRow).join("") || `<div class="card"><p class="muted" style="margin:0; text-align:center">अभी कोई फ़ीस रिकॉर्ड नहीं है।</p></div>`}</div>`
       : `
-        <div class="card"><h3 style="margin-top:0">💰 भुगतान इतिहास • Payment History</h3>
-          ${history.map(r => `<div class="item"><div style="display:flex; gap:10px; align-items:center">
+        <div class="card"><h3 style="margin-top:0">🧾 भुगतान रसीदें • Payment Receipts</h3>
+          ${ledgerPays.length ? ledgerPays.slice().reverse().map(p => { const r = recById[p.fee_record_id] || {}; return `<div class="item"><div style="display:flex; gap:10px; align-items:center">
+            <div class="nicon" style="background:#e0f5ec">🧾</div>
+            <div><div class="t" style="font-size:15px">₹${(+p.amount).toLocaleString("en-IN")} जमा</div>
+            <div class="s">${esc(TYPE_HI[r.fee_type] || r.fee_type || "")} • ${esc(r.period || "")} • ${ledgerDate2(p.created_at)}${p.note ? ` • ${esc(p.note)}` : ""} • ${esc(recvName2(p.received_by))}</div></div></div>
+            <span class="pill green">Paid ✅</span></div>`; }).join("")
+          : history.length ? history.map(r => `<div class="item"><div style="display:flex; gap:10px; align-items:center">
             <div class="nicon" style="background:#e0f5ec">💰</div>
-            <div><div class="t" style="font-size:14.5px">₹${(+r.paid_amount).toLocaleString("en-IN")} जमा</div>
-            <div class="s">${esc(TYPE_HI[r.fee_type] || r.fee_type)} • ${r.fee_type === "monthly" ? periodHi(r) : esc(r.period)} • ${new Date(r.updated_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}${+r.amount - +r.paid_amount > 0 ? ` • <b style="color:var(--bad)">₹${(+r.amount - +r.paid_amount).toLocaleString("en-IN")} बाकी</b>` : " • पूरी जमा ✅"}</div></div></div>
-            <span class="pill ${+r.paid_amount >= +r.amount ? "green" : "gold"}">${+r.paid_amount >= +r.amount ? "Paid" : "Partial"}</span></div>`).join("") || `<p class="muted" style="margin:0">अभी कोई भुगतान दर्ज नहीं है।</p>`}
+            <div><div class="t" style="font-size:15px">₹${(+r.paid_amount).toLocaleString("en-IN")} जमा</div>
+            <div class="s">${esc(TYPE_HI[r.fee_type] || r.fee_type)} • ${r.fee_type === "monthly" ? periodHi(r) : esc(r.period)} • ${new Date(r.updated_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</div></div></div>
+            <span class="pill ${+r.paid_amount >= +r.amount ? "green" : "gold"}">${+r.paid_amount >= +r.amount ? "Paid ✅" : "Partial"}</span></div>`).join("")
+          : `<p class="muted" style="margin:0">अभी कोई भुगतान दर्ज नहीं है।</p>`}
         </div>`}
-      <div class="card"><h3 style="margin-top:0">ℹ️ फ़ीस कैसे जमा करें</h3>
-        <p class="muted" style="margin:0">फ़ीस Academy कार्यालय (Manikpur, Gopalganj) में जमा करें। जमा होते ही रिकॉर्ड यहाँ दिखने लगेगा और रसीद कार्यालय से मिल जाएगी। Online payment की सुविधा अभी उपलब्ध नहीं है।</p>
-      </div>`;
+      <div class="card" style="padding:14px 16px"><p class="muted" style="margin:0; font-size:13px">ℹ️ फ़ीस Academy कार्यालय (Manikpur, Gopalganj) में जमा करें — जमा होते ही रसीद यहाँ अपने आप दिखने लगेगी।</p></div>`;
     $app.querySelectorAll("[data-ftab]").forEach(b => b.onclick = () => { feesTab = b.dataset.ftab; renderFeesStudent(); });
     return;
   }
