@@ -6,9 +6,15 @@
 <title>Target Academy — Learning Platform</title>
 <meta name="description" content="Target Academy Coaching Centre, Manikpur, Gopalganj — notes, study material, online tests and results for students.">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#0b2a5b">
+<meta name="theme-color" content="#0f172a">
 <link rel="icon" href="icon.svg?v=31">
-<link rel="stylesheet" href="styles.css?v=63">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=70">
+<script>
+try{if(localStorage.getItem("ta_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(_){}
+</script>
 </head>
 <body>
 <div id="splash" aria-hidden="true">
@@ -47,8 +53,11 @@
       <div class="brand-sub">Coaching Centre • Manikpur, Gopalganj</div>
     </div>
   </div>
-  <button id="bellBtn" class="ghost hidden" style="position:relative;margin-left:auto">🔔<span id="bellBadge" class="hidden bellbadge"></span></button>
-  <button id="logoutBtn" class="ghost hidden">Logout</button>
+  <div class="top-actions">
+    <button id="themeBtn" class="ghost icon-btn" type="button" title="Toggle theme" aria-label="Toggle dark mode">🌙</button>
+    <button id="bellBtn" class="ghost hidden" style="position:relative">🔔<span id="bellBadge" class="hidden bellbadge"></span></button>
+    <button id="logoutBtn" class="ghost hidden">Logout</button>
+  </div>
 </header>
 
 <div id="pagehead" class="hidden"></div>
@@ -59,6 +68,21 @@
 <nav id="tabbar" class="hidden"></nav>
 <div id="toast" class="hidden"></div>
 
+<script>
+(function(){
+  const btn=document.getElementById("themeBtn");
+  if(!btn)return;
+  const sync=()=>{const d=document.documentElement.getAttribute("data-theme")==="dark";btn.textContent=d?"☀️":"🌙";btn.title=d?"Switch to Light Mode":"Switch to Dark Mode";};
+  sync();
+  btn.addEventListener("click",()=>{
+    const next=document.documentElement.getAttribute("data-theme")==="dark"?"light":"dark";
+    if(next==="dark")document.documentElement.setAttribute("data-theme","dark");
+    else document.documentElement.removeAttribute("data-theme");
+    try{localStorage.setItem("ta_theme",next);}catch(_){}
+    sync();
+  });
+})();
+</script>
 <script type="module" src="app.js?v=69"></script>
 
   </div>
