@@ -1708,3 +1708,146 @@ button.wa-btn{
   }
   .offline-bar{top:116px}
 }
+
+/* ==========================================================================
+   v73 — MODERN AI TUTOR CHAT UI & CLEAN TYPOGRAPHY
+   ========================================================================== */
+.tut-hero{padding:18px 18px 16px}
+.tut-top{display:flex; align-items:center; gap:12px; margin-bottom:14px}
+.tut-av-lg{
+  width:46px; height:46px; border-radius:15px; flex:0 0 auto;
+  display:grid; place-items:center; font-size:22px; color:#fff;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  box-shadow:0 8px 20px -4px rgba(79,70,229,.45);
+}
+.tut-title{font-size:18px; font-weight:800; color:var(--ink); letter-spacing:-.02em}
+.tut-sub{font-size:12.5px; color:var(--muted); margin-top:2px; line-height:1.45}
+.tut-modes{margin-bottom:12px}
+.tut-grid{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px; margin-top:4px;
+}
+.tut-sug{
+  display:flex; align-items:center; gap:10px; text-align:left;
+  background:var(--card2); color:var(--ink);
+  border:1px solid var(--line-strong); border-radius:14px;
+  padding:11px 12px; min-height:48px; box-shadow:none;
+  font-size:13px; font-weight:700; line-height:1.35;
+}
+.tut-sug:hover{background:var(--accent-soft); border-color:rgba(79,70,229,.35); color:var(--accent)}
+.tut-sic{font-size:18px; flex:0 0 auto}
+.tut-st{min-width:0; overflow-wrap:anywhere}
+.tut-sec{margin-top:12px}
+.tut-sec-l{font-size:12px; font-weight:800; color:var(--muted); margin-bottom:7px}
+.tut-pills{display:flex; flex-wrap:wrap; gap:7px}
+.tut-pill{
+  background:var(--card2); color:var(--ink); border:1px solid var(--line-strong);
+  border-radius:999px; padding:7px 12px; min-height:34px; font-size:12.5px;
+  font-weight:700; box-shadow:none;
+}
+.tut-pill:hover{background:var(--accent-soft); border-color:rgba(79,70,229,.35); color:var(--accent)}
+
+/* Modern Chat Messages & Clean Typography */
+.tut-msgs{display:flex; flex-direction:column; gap:12px; margin:4px 0 16px}
+.chatrow{display:flex; align-items:flex-end; gap:9px; margin:0}
+.chatrow.me{justify-content:flex-end}
+.tut-av{
+  width:32px; height:32px; border-radius:11px; flex:0 0 auto;
+  display:grid; place-items:center; font-size:15px; color:#fff;
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  box-shadow:0 4px 12px -2px rgba(79,70,229,.4);
+}
+.bubble{
+  max-width:86%; padding:14px 16px; border-radius:18px;
+  font-size:15px; line-height:1.75; letter-spacing:0;
+  font-family:"Plus Jakarta Sans","Noto Sans Devanagari",system-ui,sans-serif;
+}
+.bubble.ai{
+  background:var(--card); color:var(--ink);
+  border:1px solid var(--line); border-bottom-left-radius:6px;
+  box-shadow:var(--shadow-sm);
+}
+.bubble.me{
+  background:linear-gradient(135deg,var(--accent),var(--navy3));
+  color:#ffffff; border:0; border-bottom-right-radius:6px;
+  box-shadow:0 8px 18px -6px rgba(79,70,229,.45);
+}
+.tut-msg-img{max-width:210px; width:100%; border-radius:12px; display:block; margin-bottom:8px}
+.tut-me-txt{white-space:pre-wrap; overflow-wrap:anywhere}
+.tut-bhead{
+  font-size:11.5px; font-weight:800; letter-spacing:.03em; text-transform:uppercase;
+  color:var(--accent); margin-bottom:8px;
+}
+.tut-body .ai-p{margin:0 0 10px; color:var(--ink)}
+.tut-body .ai-p:last-child{margin-bottom:0}
+.tut-body .ai-h{
+  font-size:15.5px; font-weight:800; color:var(--ink);
+  margin:14px 0 6px; padding-bottom:4px; border-bottom:1px solid var(--line);
+}
+.tut-body .ai-h:first-child{margin-top:0}
+.tut-body .ai-list{display:flex; flex-direction:column; gap:7px; margin:8px 0 10px}
+.tut-body .ai-li{
+  display:flex; align-items:flex-start; gap:9px; margin:0;
+  font-size:14.8px; line-height:1.7;
+}
+.tut-body .ai-dot{
+  width:6px; height:6px; border-radius:50%; background:var(--accent);
+  margin-top:10px; flex:0 0 auto;
+}
+.tut-body .ai-n{
+  min-width:22px; height:22px; border-radius:7px; flex:0 0 auto;
+  display:grid; place-items:center; font-size:12px; font-weight:800;
+  background:var(--accent-soft); color:var(--accent); margin-top:2px;
+}
+.tut-body .ai-hr{border:0; border-top:1px solid var(--line); margin:12px 0}
+.tut-body .ai-code{
+  background:#0f172a; color:#e2e8f0; padding:12px 14px;
+  border-radius:12px; font-size:13.5px; line-height:1.6;
+  overflow-x:auto; margin:10px 0;
+}
+.tut-bfoot{
+  display:flex; gap:8px; margin-top:12px; padding-top:10px;
+  border-top:1px solid var(--line);
+}
+.tut-act{
+  background:var(--card2); color:var(--muted); border:1px solid var(--line);
+  border-radius:999px; padding:5px 11px; min-height:32px;
+  font-size:12px; font-weight:700; box-shadow:none;
+}
+.tut-act:hover{background:var(--accent-soft); color:var(--accent); border-color:rgba(79,70,229,.3)}
+
+/* Animated 3-Dot Typing Indicator */
+@keyframes tdot{0%,80%,100%{transform:scale(.6);opacity:.35}40%{transform:scale(1);opacity:1}}
+.tut-typing{display:inline-flex; align-items:center; gap:6px; padding:14px 18px}
+.tdot{width:8px; height:8px; border-radius:50%; background:var(--accent); animation:tdot 1.2s infinite ease-in-out}
+.tdot:nth-child(2){animation-delay:.18s}
+.tdot:nth-child(3){animation-delay:.36s}
+
+/* Modern Floating Composer Pill */
+.tut-composer{
+  position:sticky; bottom:calc(82px + env(safe-area-inset-bottom)); z-index:12;
+  background:var(--card); border:1.5px solid var(--line-strong);
+  border-radius:20px; padding:8px; box-shadow:var(--shadow);
+}
+@media (min-width:900px){ .tut-composer{bottom:16px} }
+.tut-bar{display:flex; align-items:center; gap:6px}
+.tut-bar input{
+  flex:1; min-width:0; border:0; background:transparent;
+  padding:10px 8px; font-size:15px; box-shadow:none;
+}
+.tut-bar input:focus{box-shadow:none; background:transparent}
+.tut-ibtn{
+  width:40px; height:40px; min-height:40px; padding:0; flex:0 0 auto;
+  border-radius:12px; background:var(--card2); color:var(--ink);
+  border:1px solid var(--line); box-shadow:none; font-size:17px;
+  display:grid; place-items:center;
+}
+.tut-ibtn:hover{background:var(--accent-soft); color:var(--accent)}
+.tut-send{
+  width:42px; height:42px; min-height:42px; padding:0; flex:0 0 auto;
+  border-radius:13px; font-size:16px; display:grid; place-items:center;
+}
+@media (max-width:440px){
+  .tut-grid{grid-template-columns:1fr}
+  .bubble{max-width:90%}
+}

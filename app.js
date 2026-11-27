@@ -3174,17 +3174,17 @@ function aiMath(t) {
   t = t.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, "($1)/($2)");
   t = t.replace(/\\sqrt\{([^}]*)\}/g, "√($1)").replace(/\\sqrt/g, "√");
   t = t.replace(/_\{([^}]*)\}/g, "<sub>$1</sub>").replace(/\^\{([^}]*)\}/g, "<sup>$1</sup>");
-  t = t.replace(/_([A-Za-z0-9])/g, "<sub>$1</sub>").replace(/\^([A-Za-z0-9+\-])/g, "<sup>$1</sup>");
+  t = t.replace(/([A-Za-z0-9\)])_([0-9]+|[a-z])(?![A-Za-z0-9_])/g, "$1<sub>$2</sub>").replace(/([A-Za-z0-9\)])\^([0-9+\-]+|[a-z])(?![A-Za-z0-9])/g, "$1<sup>$2</sup>");
   const sym = { "\\alpha": "α", "\\beta": "β", "\\gamma": "γ", "\\delta": "δ", "\\Delta": "Δ", "\\theta": "θ", "\\lambda": "λ", "\\mu": "μ", "\\pi": "π", "\\sigma": "σ", "\\omega": "ω", "\\Omega": "Ω", "\\times": "×", "\\div": "÷", "\\pm": "±", "\\le": "≤", "\\ge": "≥", "\\neq": "≠", "\\ne": "≠", "\\approx": "≈", "\\infty": "∞", "\\degree": "°", "\\circ": "°", "\\cdot": "·" };
   for (const k in sym) t = t.split(k).join(sym[k]);
   t = t.replace(/\\[,;:! ]/g, " ").replace(/\\([A-Za-z]+)/g, "$1").replace(/\\/g, "");
   return t;
 }
 function aiInline(s) {
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/__([^_]+)__/g, "<b>$1</b>");
   s = s.replace(/\$\$([^$]+)\$\$/g, (m, inner) => aiMath(inner));
   s = s.replace(/\$([^$]+)\$/g, (m, inner) => aiMath(inner));
   s = aiMath(s);
-  s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/__([^_]+)__/g, "<b>$1</b>");
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*/g, "$1<i>$2</i>");
   s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
   return s;
@@ -3203,12 +3203,19 @@ function aiHTML(text) {
     if (inCode) { codeBuf.push(line); continue; }
     const t = line.trim();
     if (!t) { closeList(); continue; }
+    if (/^[-*_]{3,}$/.test(t)) { closeList(); out.push('<hr class="ai-hr">'); continue; }
     const h = t.match(/^#{1,4}\s+(.*)$/);
     if (h) { closeList(); out.push(`<div class="ai-h">${aiInline(esc(h[1]))}</div>`); continue; }
+    const num = t.match(/^(\d+)[\.\)]\s+(.*)$/);
+    if (num) {
+      if (!listOpen) { out.push('<div class="ai-list">'); listOpen = true; }
+      out.push(`<div class="ai-li ai-num"><span class="ai-n">${num[1]}</span><span>${aiInline(esc(num[2]))}</span></div>`);
+      continue;
+    }
     const b = t.match(/^[•\-\*]\s+(.*)$/);
     if (b) {
       if (!listOpen) { out.push('<div class="ai-list">'); listOpen = true; }
-      out.push(`<div class="ai-li">• ${aiInline(esc(b[1]))}</div>`);
+      out.push(`<div class="ai-li"><span class="ai-dot"></span><span>${aiInline(esc(b[1]))}</span></div>`);
       continue;
     }
     closeList();
@@ -3235,37 +3242,48 @@ async function renderTutor() {
       tutorWeak = Object.entries(agg).map(([cid, arr]) => ({ id: +cid, name: nameOfCh[cid] || "", avg: arr.reduce((s, x) => s + x, 0) / arr.length })).filter(w => w.name && w.avg < 70).sort((a, b) => a.avg - b.avg).slice(0, 3);
     } catch (_) { tutorWeak = []; }
   }
-  const chips = ["Explain refraction of light", "What is photosynthesis?", "Why do the angles of a triangle add up to 180°?", "Explain the water cycle", "How do I solve x + 5 = 12?"];
+  const chips = [
+    { ic: "🔦", t: "प्रकाश का अपवर्तन", q: "प्रकाश का अपवर्तन (Refraction of light) आसान हिंदी में समझाओ" },
+    { ic: "🌿", t: "प्रकाश संश्लेषण", q: "प्रकाश संश्लेषण (Photosynthesis) क्या है? समीकरण सहित समझाओ" },
+    { ic: "📐", t: "त्रिभुज के कोण 180°", q: "त्रिभुज के तीनों कोणों का योग 180° क्यों होता है?" },
+    { ic: "🧮", t: "समीकरण हल करें", q: "x + 5 = 12 को स्टेप-बाय-स्टेप कैसे हल करें?" },
+  ];
   const bubble = (m, i) => m.role === "me"
-    ? `<div class="chatrow me"><div class="bubble me">${m.img ? `<img src="${m.img}" alt="Question photo" style="max-width:190px; width:100%; border-radius:10px; display:block; margin-bottom:${m.text ? "6px" : "0"}">` : ""}${esc(m.text)}</div></div>`
-    : `<div class="chatrow"><div class="bubble ai"><b>🤖 AI Tutor</b><br>${aiHTML(m.text)}<br><button type="button" class="light small" data-sayidx="${i}" style="margin-top:6px">🔊 Listen</button></div></div>`;
+    ? `<div class="chatrow me"><div class="bubble me">${m.img ? `<img src="${m.img}" alt="Question photo" class="tut-msg-img">` : ""}<div class="tut-me-txt">${esc(m.text)}</div></div></div>`
+    : `<div class="chatrow ai-row"><div class="tut-av">✨</div><div class="bubble ai"><div class="tut-bhead"><span>Target AI Tutor</span></div><div class="tut-body">${aiHTML(m.text)}</div><div class="tut-bfoot"><button type="button" class="tut-act" data-sayidx="${i}">🔊 Listen</button><button type="button" class="tut-act" data-copyidx="${i}">📋 Copy</button></div></div></div>`;
   $app.innerHTML = `
-    <div class="card"><h3 style="margin:0">🤖 AI Tutor</h3>
-      <p class="muted" style="margin:6px 0 0">Ask any study question — type it, tap 🎤 to speak, or tap 📷 Photo to ask from a photo of your book or notebook. The AI Tutor will explain it step-by-step in easy Hindi.</p>
-      <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
-        <button type="button" class="chip ${tutorMode === "normal" ? "on" : ""}" data-tmode="normal">🎓 Normal</button>
-        <button type="button" class="chip ${tutorMode === "easy" ? "on" : ""}" data-tmode="easy">🪜 Easy Language</button>
-        <button type="button" class="chip ${tutorMode === "exam" ? "on" : ""}" data-tmode="exam">📝 Exam Style</button>
+    <div class="card tut-hero">
+      <div class="tut-top">
+        <div class="tut-av-lg">✨</div>
+        <div style="flex:1; min-width:0">
+          <div class="tut-title">Target AI Tutor</div>
+          <div class="tut-sub">कोई भी सवाल लिखें, बोलकर पूछें 🎤 या कॉपी/किताब की फ़ोटो 📷 भेजें</div>
+        </div>
+        ${tutorChat.length ? `<button type="button" class="light small" id="tutorClear">🧹 Clear</button>` : ""}
       </div>
-      ${tutorChat.length ? "" : `<div class="row" style="margin-top:10px">${chips.map(c => `<button class="light small" data-tchip="${esc(c)}">${esc(c)}</button>`).join("")}</div>`}
-      ${!isStaff() && tutorWeak.length ? `<div style="margin-top:12px"><div class="muted" style="font-weight:700; margin-bottom:6px">🎯 मेरे कमज़ोर अध्याय — Tap करके समझें</div><div class="row" style="gap:6px; flex-wrap:wrap">${tutorWeak.map(w => `<button type="button" class="light small" data-tweak="${esc(w.name)}">🎯 Explain: ${esc(w.name)}</button>`).join("")}</div></div>` : ""}
-      <div class="row" style="margin-top:10px; gap:6px; flex-wrap:wrap">
-        <button type="button" class="light small" data-tfill="मेरे लिए रोज़ का पढ़ने का Plan बनाओ">📌 Study Plan</button>
-        <button type="button" class="light small" data-tfill="मुझे याद करने के आसान तरीके बताओ">🧠 Memory Tips</button>
-        <button type="button" class="light small" data-tfill="परीक्षा में उत्तर लिखने की शैली समझाओ">✍️ Answer Writing</button>
+      <div class="seg-tabs tut-modes">
+        <button type="button" class="${tutorMode === "normal" ? "on" : ""}" data-tmode="normal">🎓 Normal</button>
+        <button type="button" class="${tutorMode === "easy" ? "on" : ""}" data-tmode="easy">🪜 Easy</button>
+        <button type="button" class="${tutorMode === "exam" ? "on" : ""}" data-tmode="exam">📝 Exam</button>
+      </div>
+      ${tutorChat.length ? "" : `<div class="tut-grid">${chips.map(c => `<button type="button" class="tut-sug" data-tchip="${esc(c.q)}"><span class="tut-sic">${c.ic}</span><span class="tut-st">${esc(c.t)}</span></button>`).join("")}</div>`}
+      ${!isStaff() && tutorWeak.length ? `<div class="tut-sec"><div class="tut-sec-l">🎯 मेरे कमज़ोर अध्याय — टैप करके समझें</div><div class="tut-pills">${tutorWeak.map(w => `<button type="button" class="tut-pill" data-tweak="${esc(w.name)}">🎯 ${esc(w.name)}</button>`).join("")}</div></div>` : ""}
+      <div class="tut-pills" style="margin-top:10px">
+        <button type="button" class="tut-pill" data-tfill="मेरे लिए रोज़ का पढ़ने का Plan बनाओ">📌 Study Plan</button>
+        <button type="button" class="tut-pill" data-tfill="मुझे याद करने के आसान तरीके बताओ">🧠 Memory Tips</button>
+        <button type="button" class="tut-pill" data-tfill="परीक्षा में उत्तर लिखने की शैली समझाओ">✍️ Answer Writing</button>
       </div>
     </div>
-    <div id="tutorMsgs">${tutorChat.map((m, i) => bubble(m, i)).join("")}${tutorBusy ? `<div class="chatrow"><div class="bubble ai">🤖 Typing…</div></div>` : ""}</div>
-    <form id="tutorForm" class="card">
+    <div id="tutorMsgs" class="tut-msgs">${tutorChat.map((m, i) => bubble(m, i)).join("")}${tutorBusy ? `<div class="chatrow ai-row"><div class="tut-av">✨</div><div class="bubble ai tut-typing"><span class="tdot"></span><span class="tdot"></span><span class="tdot"></span></div></div>` : ""}</div>
+    <form id="tutorForm" class="tut-composer">
       ${tutorPhoto ? `<div class="tut-photo"><img src="${tutorPhoto.url}" alt="Question photo"><span class="muted" style="flex:1">Photo attached — tap Ask, or write a line with it.</span><button type="button" class="light small" id="tutorPhotoX">✕ Remove</button></div>` : ""}
-      <div class="row">
-        <input id="tutorInput" placeholder="Write or speak your question…" style="flex:1" ${tutorBusy ? "disabled" : ""}>
-        <button type="button" class="light" id="tutorPhotoBtn" title="Ask with a photo" ${tutorBusy ? "disabled" : ""}>📷 Photo</button>
-        ${voiceSupported() ? `<button type="button" class="light" id="tutorMic" title="Ask by speaking" ${tutorBusy ? "disabled" : ""}>🎤</button>` : ""}
-        <button type="submit" ${tutorBusy ? "disabled" : ""}>Ask ➤</button>
+      <div class="tut-bar">
+        <button type="button" class="tut-ibtn" id="tutorPhotoBtn" title="Ask with a photo" ${tutorBusy ? "disabled" : ""}>📷</button>
+        ${voiceSupported() ? `<button type="button" class="tut-ibtn" id="tutorMic" title="Ask by speaking" ${tutorBusy ? "disabled" : ""}>🎤</button>` : ""}
+        <input id="tutorInput" placeholder="अपना सवाल यहाँ लिखें…" ${tutorBusy ? "disabled" : ""}>
+        <button type="submit" class="tut-send" ${tutorBusy ? "disabled" : ""}>➤</button>
       </div>
       <input type="file" id="tutorPhotoFile" accept="image/*" style="display:none">
-      ${tutorChat.length ? `<button type="button" class="light small" id="tutorClear" style="margin-top:8px">🧹 Clear chat</button>` : ""}
     </form>`;
   const send = async (text) => {
     const q = (text || "").trim();
@@ -3303,6 +3321,10 @@ async function renderTutor() {
   const tmic = document.getElementById("tutorMic");
   if (tmic) tmic.onclick = () => startVoice(document.getElementById("tutorInput"), tmic);
   $app.querySelectorAll("[data-sayidx]").forEach(b => b.onclick = () => speakText(tutorChat[+b.dataset.sayidx].text, b));
+  $app.querySelectorAll("[data-copyidx]").forEach(b => b.onclick = () => {
+    const txt = tutorChat[+b.dataset.copyidx]?.text || "";
+    if (navigator.clipboard && txt) navigator.clipboard.writeText(txt).then(() => toast("📋 उत्तर कॉपी हो गया"), () => toast("कॉपी नहीं हो सका"));
+  });
   $app.querySelectorAll("[data-tchip]").forEach(b => b.onclick = () => send(b.dataset.tchip));
   $app.querySelectorAll("[data-tmode]").forEach(b => b.onclick = () => { tutorMode = b.dataset.tmode; renderTutor(); });
   $app.querySelectorAll("[data-tweak]").forEach(b => b.onclick = () => send(b.dataset.tweak + " को आसान उदाहरणों से समझाओ"));
