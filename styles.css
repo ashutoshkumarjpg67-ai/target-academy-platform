@@ -1954,3 +1954,31 @@ button.wa-btn{
   max-height:280px; overflow:auto; border:1px solid var(--line);
   border-radius:14px; padding:6px 12px; background:var(--card2);
 }
+
+/* ==========================================================================
+   v81 — MOBILE SPEED & INSTANT-TAP PERFORMANCE PASS
+   Removes GPU-heavy fixed background repaints, heavy mobile backdrop-filter
+   blurs, and card entrance delays so taps and scrolling feel instant (60fps).
+   ========================================================================== */
+body, [data-theme="dark"] body{
+  background-attachment:scroll !important;
+}
+.card, .pagehead, .hero, .exam-cd, .streak-card, .stile, .motto, .goal{
+  animation:none !important;
+}
+@media (max-width:899px){
+  #topbar{
+    backdrop-filter:none !important;
+    -webkit-backdrop-filter:none !important;
+    background:rgba(255,255,255,.97) !important;
+  }
+  [data-theme="dark"] #topbar{
+    background:rgba(15,23,42,.97) !important;
+  }
+  #tabbar{
+    backdrop-filter:none !important;
+    -webkit-backdrop-filter:none !important;
+    background:#0f172a !important;
+  }
+  .ec-tile{backdrop-filter:none !important}
+}

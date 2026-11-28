@@ -178,13 +178,15 @@ export function loadSnapshot(uid, tab) {
   try { const o = JSON.parse(localStorage.getItem(snapKey(uid, tab)) || "null"); return o && o.html ? o : null; } catch (_) { return null; }
 }
 export function watchSnapshots(root, getCtx) {
-  let timer = null;
+  // v81: lightweight snapshot only on pagehide/visibilitychange (never continuous
+  // MutationObserver, which previously serialized innerHTML on every timer tick).
   const run = () => {
     const c = getCtx();
     if (!c || !c.userId || !c.online || c.view !== "tab") return;
     saveSnapshot(c.userId, c.tab, root.innerHTML);
   };
-  new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(run, 1800); }).observe(root, { childList: true, subtree: true });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") run(); });
+  window.addEventListener("pagehide", run);
 }
 
 /* ---------- v75: Realtime notifications ---------- */

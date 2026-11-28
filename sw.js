@@ -1,20 +1,21 @@
-// Target Academy — service worker (v81):
-// 1) Network-first app-shell caching so students always get the newest version
-//    when online AND can still open the app & cached assets when offline.
-// 2) Web Push notifications for announcements, homework, live classes & tests.
-const CACHE_NAME = "ta-shell-v81";
+// Target Academy — service worker (v82):
+// 1) Cache-first for versioned static assets (?v=...) so CSS/JS load instantly (0ms).
+// 2) Fast network-first (2.5s timeout) for index.html so users get updates quickly
+//    without ever waiting on slow mobile data.
+// 3) Web Push notifications for announcements, homework, live classes & tests.
+const CACHE_NAME = "ta-shell-v82";
 const SHELL_ASSETS = [
   "./",
   "index.html",
-  "styles.css?v=78",
-  "app.js?v=81",
+  "styles.css?v=82",
+  "app.js?v=82",
   "config.js?v=16",
   "icon.svg?v=31",
   "manifest.webmanifest",
   "js/branding.js?v=1",
   "js/csv.js?v=1",
   "js/media.js?v=1",
-  "js/enhancements.js?v=2",
+  "js/enhancements.js?v=3",
 ];
 
 self.addEventListener("install", (e) => {
@@ -37,16 +38,33 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
-  e.respondWith(
-    fetch(req)
-      .then((res) => {
+
+  // Versioned static assets (styles.css?v=..., app.js?v=..., js/*, icon.svg): Cache-First for instant load
+  if (url.search.includes("v=") || /\.(css|js|svg|png|webmanifest)$/.test(url.pathname)) {
+    e.respondWith(
+      caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         if (res && res.ok) {
           const copy = res.clone();
           caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
         }
         return res;
-      })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match("index.html")))
+      }))
+    );
+    return;
+  }
+
+  // HTML navigation: Network-First with 2.5s timeout fallback to cache
+  e.respondWith(
+    Promise.race([
+      fetch(req).then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 2500)),
+    ]).catch(() => caches.match(req).then((hit) => hit || caches.match("index.html")))
   );
 });
 

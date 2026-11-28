@@ -3,7 +3,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=16";
 import { downloadCSV } from "./js/csv.js?v=1";
 import { fmtKB, compressImageFile, enhanceFilePicker } from "./js/media.js?v=1";
 import { applyBrandLogo } from "./js/branding.js?v=1";
-import { skeletonHTML, initOfflineBanner, recordStudyActivity, streakCardHTML, shareWhatsAppReport, cloudTTS, loadSnapshot, watchSnapshots, subscribeRealtime } from "./js/enhancements.js?v=2";
+import { skeletonHTML, initOfflineBanner, recordStudyActivity, streakCardHTML, shareWhatsAppReport, cloudTTS, loadSnapshot, watchSnapshots, subscribeRealtime } from "./js/enhancements.js?v=3";
 
 /* Photo upload prep (kept here: uses toast). Compression itself lives in js/media.js. */
 async function prepareUploadFile(file) {
@@ -1005,9 +1005,15 @@ async function renderFees() {
   host.querySelectorAll("[data-fatab]").forEach(b => b.onclick = () => { feeAdminTab = b.dataset.fatab; renderFees(); });
   host.querySelectorAll("[data-fcmode]").forEach(b => b.onclick = () => { feeCreateMode = b.dataset.fcmode; renderFees(); });
 
-  // Search & filters (Records tab)
+  // Instant client-side search (zero DB refetch per keystroke)
   const sIn = document.getElementById("feeSearchIn");
-  if (sIn) sIn.oninput = () => { feeSearch = sIn.value; renderFees(); setTimeout(() => { const n = document.getElementById("feeSearchIn"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0); };
+  if (sIn) sIn.oninput = () => {
+    feeSearch = sIn.value;
+    const ql = feeSearch.trim().toLowerCase();
+    host.querySelectorAll(".fee-list .fee-card").forEach(c => {
+      c.style.display = !ql || c.textContent.toLowerCase().includes(ql) ? "" : "none";
+    });
+  };
   const cSel = document.getElementById("feeClsFilter");
   if (cSel) cSel.onchange = () => { feeFilterClass = cSel.value; renderFees(); };
   host.querySelectorAll("[data-fst]").forEach(b => b.onclick = () => { feeFilterStatus = b.dataset.fst; renderFees(); });
@@ -2168,7 +2174,13 @@ async function renderTests() {
   $app.querySelectorAll("[data-tvtab]").forEach(b => b.onclick = () => { testViewTab = b.dataset.tvtab; renderTests(); });
   $app.querySelectorAll("[data-tst]").forEach(b => b.onclick = () => { testFilterStatus = b.dataset.tst; renderTests(); });
   const tsIn = document.getElementById("testSearchIn");
-  if (tsIn) tsIn.oninput = () => { testSearch = tsIn.value; renderTests(); setTimeout(() => { const n = document.getElementById("testSearchIn"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0); };
+  if (tsIn) tsIn.oninput = () => {
+    testSearch = tsIn.value;
+    const ql = testSearch.trim().toLowerCase();
+    $app.querySelectorAll(".test-card").forEach(c => {
+      c.style.display = !ql || c.textContent.toLowerCase().includes(ql) ? "" : "none";
+    });
+  };
   const tsSub = document.getElementById("testSubjFilter");
   if (tsSub) tsSub.onchange = () => { testFilterSubj = tsSub.value; renderTests(); };
 
@@ -2639,22 +2651,30 @@ async function goQ(i) {
   renderRun();
   window.scrollTo({ top: 0 });
 }
-// v66: double-tap se do submit na chale — ek submit chalu ho to dusra roko.
+// v81: instant click feedback + double-tap lock BEFORE flushing answers,
+// so weak mobile data never makes Submit look dead or trigger duplicate saves.
 let submitting = false;
 async function confirmSubmit() {
   if (!run || submitting) return;
-  await flushCurrentInput();
+  flushCurrentInput();
   const n = runAnsweredCount(), total = run.qs.length;
-  // Never submit a completely empty test — a mistaken tap used to score 0.
   if (n === 0) { toast("Koi jawab nahi diya — pehle kam se kam ek prashn ka jawab dijiye"); return; }
-  // Saare jawab DB me pakke kar lo; agar save fail ho to submit mat karo.
-  const saveErr = await flushAllAnswers();
-  if (saveErr) { toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message + ". Network check karke dobara Submit dabayein."); return; }
-  if (confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) {
-    submitting = true;
-    const btn = document.getElementById("finalSubmit");
-    if (btn) { btn.disabled = true; btn.textContent = "Submitting…"; }
-    try { await finishTest(false); } finally { submitting = false; }
+  if (!confirm(`Submit the test?\n\nAnswered: ${n} of ${total}${n < total ? `\n⚠️ ${total - n} question(s) are still unanswered.` : ""}\n\nYou will not be able to change answers after this.`)) return;
+  submitting = true;
+  const btn = document.getElementById("finalSubmit");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Saving & Submitting…"; }
+  try {
+    const saveErr = await flushAllAnswers();
+    if (saveErr) {
+      toast("Submit roka gaya — jawab save nahi ho pa rahe: " + saveErr.message + ". Network check karke dobara Submit dabayein.", 4500);
+      if (btn) { btn.disabled = false; btn.textContent = "Submit Test ✓"; }
+      return;
+    }
+    await finishTest(false);
+  } finally {
+    submitting = false;
+    const b2 = document.getElementById("finalSubmit");
+    if (b2 && run) { b2.disabled = false; b2.textContent = "Submit Test ✓"; }
   }
 }
 const MATCH_PREFIX = "Match the following";
@@ -2878,8 +2898,8 @@ async function finishTest(auto) {
     data = res.data; error = res.error;
     if (!error) break;
     const chk = await sb.from("test_attempts").select("id,status").eq("id", attempt.id).single();
-    if (chk.data && chk.data.status === "submitted") { data = chk.data; error = null; break; }
-    if (error.message && /already submitted/i.test(error.message)) break;
+    if (chk.data && chk.data.status && chk.data.status !== "in_progress") { data = chk.data; error = null; break; }
+    if (error.message && /already submitted/i.test(error.message)) { data = { id: attempt.id }; error = null; break; }
   }
   if (error) {
     // v66: fail hone par test screen aur saare local jawab BACHAYE rakho —
@@ -4223,7 +4243,14 @@ async function renderAttendance() {
     document.getElementById("att_class").onchange = (e) => { attClassId = +e.target.value; attMarks = {}; renderAttendance(); };
     document.getElementById("att_date").onchange = (e) => { attDate = e.target.value; attMarks = {}; renderAttendance(); };
     const asIn = document.getElementById("attSearchIn");
-    if (asIn) asIn.oninput = () => { attSearch = asIn.value; renderAttendance(); setTimeout(() => { const n = document.getElementById("attSearchIn"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 0); };
+    if (asIn) asIn.oninput = () => {
+      attSearch = asIn.value;
+      const ql = attSearch.trim().toLowerCase();
+      $app.querySelectorAll(".item").forEach(row => {
+        if (!row.querySelector("[data-att]")) return;
+        row.style.display = !ql || row.textContent.toLowerCase().includes(ql) ? "" : "none";
+      });
+    };
     document.getElementById("attAllP").onclick = () => { allStuds.forEach(s => { attMarks[s.id] = "present"; }); renderAttendance(); };
     document.getElementById("attAllA").onclick = () => { allStuds.forEach(s => { attMarks[s.id] = "absent"; }); renderAttendance(); };
     $app.querySelectorAll("[data-att]").forEach(b => b.onclick = () => {
