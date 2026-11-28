@@ -140,7 +140,7 @@ async function enablePush() {
 }
 /* ---------------- Splash (Phase 1, design photo 1) ---------------- */
 const hideSplash = () => { const s = document.getElementById("splash"); if (!s || s.classList.contains("gone")) return; s.classList.add("gone"); setTimeout(() => s.remove(), 550); };
-window.addEventListener("load", () => setTimeout(hideSplash, 1200));
+window.addEventListener("load", () => setTimeout(hideSplash, 500)); // v81: 1200 → 500, splash kam der dikhe
 setTimeout(hideSplash, 3400);
 
 const roleName = (r) => ({admin:"Admin", teacher:"Teacher", student:"Student", parent:"Parent"}[r] || r);
@@ -221,19 +221,25 @@ async function boot() {
   const { data } = await sb.auth.getUser();
   me = data?.user || null;
   if (!me) { renderAuth("login"); return; }
-  const { data: prof, error } = await sb.from("profiles").select("id,full_name,role,phone,photo_path,roll_number,session,created_at").eq("id", me.id).single();
+  // v81: profile + classes + enrollments EK SAATH fetch karo — pehle ye
+  // chaar round-trip ek-ke-baad-ek hote the (getUser → profile → classes →
+  // enrollments), har ek kamzor network par 300-500ms. Ab sirf getUser
+  // sequential hai, baaki teeno parallel.
+  const [{ data: prof, error }, { data: cls }, { data: enr }] = await Promise.all([
+    sb.from("profiles").select("id,full_name,role,phone,photo_path,roll_number,session,created_at").eq("id", me.id).single(),
+    sb.from("classes").select("id,name,sort_order").order("sort_order"),
+    sb.from("enrollments").select("class_id").eq("user_id", me.id),
+  ]);
   if (error || !prof) { $app.innerHTML = `<div class="card"><h3>Profile not found</h3><p>Please contact the Academy.</p></div>`; return; }
   profile = prof;
   if (pendingRoleHint) {
     if (profile.role !== pendingRoleHint) toast("यह खाता " + ({ student: "छात्र", teacher: "शिक्षक", admin: "एडमिन", parent: "अभिभावक" }[profile.role] || profile.role) + " के रूप में है — उसी से लॉगिन हो गया है");
     pendingRoleHint = null;
   }
-  const { data: cls } = await sb.from("classes").select("id,name,sort_order").order("sort_order");
   myClasses = cls || [];
   if (!isStaff()) {
     // Students/parents: ONLY the classes they are enrolled in exist for them
     // (class-specific tests, notes, timetable, live classes, homework…).
-    const { data: enr } = await sb.from("enrollments").select("class_id").eq("user_id", me.id);
     const mine = new Set((enr || []).map(e => e.class_id));
     myClasses = myClasses.filter(c => mine.has(c.id));
   }
@@ -421,7 +427,7 @@ async function renderHome() {
     const enrolledIds = (enr || []).map(e => e.class_id);
     const inMyClasses = (qb) => enrolledIds.length ? qb.in("class_id", enrolledIds) : qb.eq("class_id", -1);
     const todayWd = new Date().getDay();
-    const [{ data: subjects }, { data: attempts }, { data: anns }, { data: lives }, { data: tt }, { data: att }, { data: pubTests }, { data: assigns }, { data: subs }, { data: feeRecs }] = await Promise.all([
+    const [{ data: subjects }, { data: attempts }, { data: anns }, { data: lives }, { data: tt }, { data: att }, { data: pubTests }, { data: assigns }, { data: subs }, { data: feeRecs }, { data: sg }] = await Promise.all([
       inMyClasses(sb.from("subjects").select("id,name,class_id").order("sort_order")),
       sb.from("test_attempts").select("test_id,score,max_score,percent,passed,submitted_at").eq("student_id", me.id).neq("status", "in_progress").order("submitted_at", { ascending: false }),
       sb.from("announcements").select("title,body,created_at,category").order("created_at", { ascending: false }).limit(4),
@@ -432,12 +438,11 @@ async function renderHome() {
       inMyClasses(sb.from("assignments").select("id,class_id")),
       sb.from("submissions").select("assignment_id,student_id").eq("student_id", me.id),
       sb.from("fee_records").select("amount,paid_amount").eq("student_id", me.id).is("deleted_at", null),
+      // v81: avatar signed URL bhi isi batch me — pehle ye alag round-trip tha
+      profile.photo_path ? sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600) : Promise.resolve({ data: null }),
     ]);
-    let greetPhoto = null;
-    if (profile.photo_path) {
-      const { data: sg } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
-      greetPhoto = sg?.signedUrl || null;
-    }
+    // v81: sg upar wale Promise.all se aaya hai — koi alag wait nahi
+    const greetPhoto = sg?.signedUrl || null;
     const myLives = (lives || []).filter(l => enrolledIds.includes(l.class_id)).slice(0, 3);
     const clsNames = myClasses.map(c => c.name).join(", ");
     const testById = {}; (pubTests || []).forEach(t => { testById[t.id] = t; });
@@ -523,7 +528,7 @@ async function renderHome() {
   // ---- Staff / Admin dashboard ----
   const todayISO = new Date().toISOString().slice(0, 10);
   const todayWdS = new Date().getDay();
-  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { count: dc }, { data: sLives }, { data: feeRows }, { data: attToday }, { data: ttAll }, { data: subjAll }, { data: feeAll }, { data: recentFees }] = await Promise.all([
+  const [{ count: sc }, { count: qc }, { count: tc }, { data: recentUsers }, { data: recentAttempts }, { data: anns }, { count: dc }, { data: sLives }, { data: feeRows }, { data: attToday }, { data: ttAll }, { data: subjAll }, { data: feeAll }, { data: recentFees }, { data: sg }] = await Promise.all([
     sb.from("profiles").select("id", { count: "exact", head: true }).eq("role", "student"),
     sb.from("questions").select("id", { count: "exact", head: true }),
     sb.from("tests").select("id", { count: "exact", head: true }),
@@ -538,17 +543,16 @@ async function renderHome() {
     sb.from("subjects").select("id,name,class_id"),
     sb.from("fee_records").select("amount,paid_amount").is("deleted_at", null),
     sb.from("fee_records").select("student_id,paid_amount,amount,fee_type,period,created_at").order("created_at", { ascending: false }).limit(3).is("deleted_at", null),
+    // v81: avatar signed URL bhi isi batch me — pehle ye alag round-trip tha
+    profile.photo_path ? sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600) : Promise.resolve({ data: null }),
   ]);
   // Phase 2: names only for the students actually shown above (previously
   // every profile row was downloaded for this lookup).
   const profIds = [...new Set([...(recentAttempts || []).map(a => a.student_id), ...(recentFees || []).map(r => r.student_id)].filter(Boolean))];
   const { data: profs } = profIds.length ? await sb.from("profiles").select("id,full_name").in("id", profIds) : { data: [] };
   const nameOf = (id) => (profs || []).find(p => p.id === id)?.full_name || "Student";
-  let greetPhoto = null;
-  if (profile.photo_path) {
-    const { data: sg } = await sb.storage.from("avatars").createSignedUrl(profile.photo_path, 3600);
-    greetPhoto = sg?.signedUrl || null;
-  }
+  // v81: sg upar wale Promise.all se aaya hai — koi alag wait nahi
+  const greetPhoto = sg?.signedUrl || null;
   const monthFees = (feeRows || []).reduce((s, r) => s + (+r.paid_amount || 0), 0);
   const totalDueAll = (feeAll || []).reduce((s, r) => s + Math.max(0, +r.amount - +r.paid_amount), 0);
   const attMarked = (attToday || []).length;
@@ -2942,22 +2946,25 @@ async function showResult(attemptId, test) {
   try { history.pushState({ view: "result" }, ""); } catch (e) {}
   $app.innerHTML = skeletonHTML("list");
   $tabbar.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === "tests"));
-  const { data: attempt } = await sb.from("test_attempts").select("id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("id", attemptId).single();
+  // v81: result ke chaaro fetch EK SAATH — pehle attempt → review RPC →
+  // attempts → subject ek-ke-baad-ek hote the, isliye Submit dabane ke
+  // baad result aane me 4 round-trip lagte the. Ab ek batch me.
+  const [attRes, revRes, attsRes, sjRes] = await Promise.all([
+    sb.from("test_attempts").select("id,status,score,max_score,percent,passed,submitted_at,time_taken_seconds").eq("id", attemptId).single(),
+    sb.rpc("get_attempt_review", { p_attempt_id: attemptId }),
+    (test && !isStaff()) ? sb.from("test_attempts").select("status").eq("test_id", test.id).eq("student_id", me.id).order("started_at", { ascending: false }) : Promise.resolve({ data: [] }),
+    (test && test.subject_id) ? sb.from("subjects").select("name, name_hi").eq("id", test.subject_id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const attempt = attRes.data;
   if (!isStaff() && attempt?.id) recordStudyActivity(me.id, 25, "test_" + attempt.id);
-  const { data: review, error } = await sb.rpc("get_attempt_review", { p_attempt_id: attemptId });
-  let myTestAttempts = [];
-  if (test && !isStaff()) {
-    const { data: atts } = await sb.from("test_attempts").select("status").eq("test_id", test.id).eq("student_id", me.id).order("started_at", { ascending: false });
-    myTestAttempts = atts || [];
-  }
+  const review = revRes.data, error = revRes.error;
+  const myTestAttempts = attsRes.data || [];
   const submittedCount = myTestAttempts.filter(a => a.status !== "in_progress").length;
   const canRestart = !!test && !isStaff() && (!test.max_attempts || submittedCount < test.max_attempts);
   revState = error ? null : { rows: (review || []).map((r, i) => ({ ...r, _i: i })), filter: "all", page: 0 };
   let resSubj = "";
-  if (test && test.subject_id) {
-    const { data: sj } = await sb.from("subjects").select("name, name_hi").eq("id", test.subject_id).maybeSingle();
-    if (sj) resSubj = sj.name + (sj.name_hi ? " • " + sj.name_hi : "");
-  }
+  const sj = sjRes.data;
+  if (sj) resSubj = sj.name + (sj.name_hi ? " • " + sj.name_hi : "");
   const resClass = test ? ((myClasses.find(c => c.id === test.class_id) || {}).name || "") : "";
   let cntR = null;
   if (revState) {
